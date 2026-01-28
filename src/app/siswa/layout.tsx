@@ -23,18 +23,17 @@ export default function SiswaLayout({
 
                 {/* SIDEBAR */}
                 <AppSidebar />
-
                 {/* AREA KANAN */}
-                <div className="flex flex-col flex-1">
+                <div className="flex flex-col flex-1 w-340 absolute md:relative">
 
                     {/* HEADER */}
-                    <header className="h-15 px-6 border-b flex items-center justify-between bg-background sticky top-2 z-30">
+                    <header className="h-18 px-6 border-b flex items-center justify-between bg-background sticky top-0 z-30 shrink-0">
                         <div className="flex flex-col">
                             <h1 className="font-semibold leading-tight">
                                 SMKN 1 Pasuruan
                             </h1>
-                            <p className="text-sm text-muted-foreground">
-                                Manajemen Magang
+                            <p className="text-sm text-muted-foreground mt-1.5">
+                                Sistem Manajemen Magang Siswa
                             </p>
                         </div>
 

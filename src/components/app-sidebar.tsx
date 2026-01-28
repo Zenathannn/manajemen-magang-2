@@ -66,6 +66,7 @@ export function AppSidebar() {
                         {/* <SidebarTrigger className="ml-auto" /> */}
                     </div>
                 </div>
+                
 
                 {/* MENU */}
                 <SidebarGroup>
