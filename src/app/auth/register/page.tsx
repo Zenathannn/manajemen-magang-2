@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, User, Mail, Lock, ArrowLeft, Check } from "lucide-react";
+import { supabase } from "@/lib/supabase/client"
 
 
 export default function RegisterPage() {
@@ -23,32 +24,51 @@ export default function RegisterPage() {
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!acceptedTerms) {
       alert("You must accept the terms and conditions.");
       return;
     }
+
     if (!formData.password || formData.password !== formData.confirmPassword) {
       alert("Passwords do not match!");
       return;
     }
 
-    // Simulate successful registration
-    console.log("Form Submitted:", formData);
+    const { error } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: {
+        data: {
+          full_name: formData.username,
+          role: "siswa",
+        },
+      },
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
     router.push("/auth/login");
-  }
+  };
 
   const getPasswordStrength = (password: string) => {
     if (password.length >= 12) return { text: "Strong", color: "text-green-600" };
     if (password.length >= 8) return { text: "Medium", color: "text-yellow-600" };
     if (password.length > 0) return { text: "Weak", color: "text-red-600" };
     return { text: "", color: "" };
-  }
+  };
 
   const passwordStrength = getPasswordStrength(formData.password);
-  const isFormValid = acceptedTerms && formData.password && (formData.password === formData.confirmPassword);
+  const isFormValid =
+    acceptedTerms &&
+    formData.password &&
+    formData.password === formData.confirmPassword;
+
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 via white to-blue-100 flex items-center justify-center p-4">
@@ -177,7 +197,7 @@ export default function RegisterPage() {
               <div className="text-center">
                 <p className="text-sm text-gray-600">
                   Already have an account?
-                  <a href="/auth/login" className="text-blue-600 hover:underline">Login here</a>
+                  <a href="/auth/login" className="text-blue-600 hover:underline"> Login here</a>
                 </p>
               </div>
             </form>

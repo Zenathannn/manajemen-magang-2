@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+import Link from "next/link"
 import {
     Card,
     CardAction,
@@ -7,11 +9,12 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
-import { Calendar, CircleCheckBig, CircleX, Clock, FileText, Paperclip } from "lucide-react"
+import { Badge } from "@/components/ui/badge";
+import { BookOpen, Calendar, CircleCheckBig, CircleX, Clock, FileText, GraduationCap, Newspaper, Plus, TrendingUp, User } from "lucide-react"
 
 export default function DashboardPage() {
     return (
-        <div>
+        <div className="space-y-7">
 
             <Card className="bg-blue-600 text-white">
                 <CardContent>
@@ -39,8 +42,8 @@ export default function DashboardPage() {
                 </CardContent>
             </Card>
 
-            <div className="pt-8 flex items-center justify-between gap-4">
-                <Card className="h-40 w-70">
+            <div className="flex items-center justify-between gap-4">
+                <Card className="h-40 w-72">
                     <CardHeader>
                         <CardTitle className="font-light">
                             Total Jurnal
@@ -59,7 +62,7 @@ export default function DashboardPage() {
                     </CardHeader>
 
                 </Card>
-                <Card className="h-40 w-70">
+                <Card className="h-40 w-72">
                     <CardHeader>
                         <CardTitle className="font-light">
                             Disetujui
@@ -77,7 +80,7 @@ export default function DashboardPage() {
                         </CardContent>
                     </CardHeader>
                 </Card>
-                <Card className="h-40 w-70">
+                <Card className="h-40 w-72">
                     <CardHeader>
                         <CardTitle className="font-light">
                             Menunggu
@@ -95,7 +98,7 @@ export default function DashboardPage() {
                         </CardContent>
                     </CardHeader>
                 </Card>
-                <Card className="h-40 w-70">
+                <Card className="h-40 w-72">
                     <CardHeader>
                         <CardTitle className="font-light">
                             Ditolak
@@ -114,77 +117,103 @@ export default function DashboardPage() {
                     </CardHeader>
                 </Card>
             </div>
-            {/* CARD TAMBAHAN */}
-            {/* SECTION INFORMASI LANJUTAN */}
-            <div className="pt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                {/* Periode Magang */}
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="font-light">
-                            Periode Magang
+            <div className="flex items-center justify-between">
+                <Card className="h-60 w-200">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2 font-light ">
+                            <GraduationCap className="text-blue-500" />
+                            <h1>Informasi Magang</h1>
                         </CardTitle>
-                        <Calendar className="text-blue-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-muted-foreground">
-                            Tanggal Mulai
-                        </p>
-                        <h1 className="text-lg font-semibold">
-                            10 Januari 2026
-                        </h1>
+                        <CardContent className="pl-0 flex flex-col gap-5">
+                            <div className="space-y-2 flex justify-between">
+                                <div className="flex items-start">
+                                    <div className="bg-blue-200 p-3 m-2 rounded-2xl">
+                                        <Newspaper className="text-blue-600" />
+                                    </div>
+                                    <div className="pt-3 space-y-0.5">
+                                        <p className="text-sm text-muted-foreground">Tempat Magang</p>
+                                        <h1 className="text-lg font-semibold">PT. Maju Mundur</h1>
+                                        <p className="text-sm text-muted-foreground">Jl. Merdeka No.123, Jakarta</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-start">
+                                    <div className="bg-green-200 p-3 m-2 rounded-2xl">
+                                        <User className="text-green-600" />
+                                    </div>
+                                    <div className="pt-3 space-y-0.5">
+                                        <p className="text-sm text-muted-foreground">Guru Pembimbing</p>
+                                        <h1 className="text-lg font-semibold">Tri Gunanto Hadi, S.PD</h1>
+                                        <p className="text-sm text-muted-foreground">Rekayasa Perangkat Lunak</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-blue-100 w-full h-13 rounded-sm flex items-center justify-between border-2 border-blue-200">
+                                <div className="flex flex-row gap-3 items-center p-4">
+                                    <Calendar className="h-4 w-4 text-blue-500" /> Date - 27 Januari 2026
+                                </div>
+                                <div className="p-4">
 
-                        <p className="mt-4 text-sm text-muted-foreground">
-                            Tanggal Selesai
-                        </p>
-                        <h1 className="text-lg font-semibold">
-                            10 April 2026
-                        </h1>
-                    </CardContent>
+                                    <Badge className="bg-yellow-100 text-yellow-800 border-2 border-yellow-700/10">
+                                        Menunggu
+                                    </Badge>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </CardHeader>
+
                 </Card>
-
-                {/* Jam Magang */}
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="font-light">
-                            Jam Magang
+                <Card className="h-60 w-100">
+                    <CardHeader>
+                        <CardTitle className="font-light flex items-center gap-2">
+                            <TrendingUp className="text-blue-500" />
+                            Aksi Cepat
                         </CardTitle>
-                        <Clock className="text-blue-500" />
+                        <CardContent className="pt-4 pl-2 items-center space-y-2">
+                            <div className="flex flex-col gap-3 w-80">
+                                <Link href="/siswa/jurnal">
+                                    <Button className="w-full bg-blue-500">
+                                        <Plus /> Buat jurnal Baru
+                                    </Button>
+                                </Link>
+                                <Link href="/siswa/jurnal">
+                                    <Button variant={"outline"} className="w-full">
+                                        <BookOpen className="text-blue-500" /> Lihat Semua Jurnal
+                                    </Button>
+                                </Link>
+                                <Link href="/siswa/magang">
+                                    <Button variant={"outline"} className="w-full">
+                                        <GraduationCap className="text-blue-500" /> Info Magang
+                                    </Button>
+                                </Link>
+                            </div>
+                        </CardContent>
                     </CardHeader>
-                    <CardContent>
-                        <h1 className="text-3xl font-bold">
-                            120 Jam
-                        </h1>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            Dari target 400 jam
-                        </p>
 
-                        <div className="mt-4 h-2 w-full bg-muted rounded-full">
-                            <div className="h-2 w-[30%] bg-blue-500 rounded-full" />
+                </Card>
+            </div>
+            <Card className="h-100">
+                <CardHeader>
+                    <CardTitle className="flex items-center flex-row gap-3 font-light">
+                        <BookOpen className="text-blue-500" />
+                        Aktivitas Jurnal Terbaru
+                    </CardTitle>
+                    <CardAction className="text-blue-500">
+                        Lihat Semua
+                    </CardAction>
+                    <CardContent className="justify-items-center m-15">
+                        <div className="flex flex-col gap-2 items-center">
+
+                            <BookOpen className="h-15 w-15 text-blue-300" />
+                            <h1>Belum Ada Jurnal</h1>
+                            <p className="text-sm text-muted-foreground">Mari dokumentasikan kegiatan magang anda</p>
+                            <Button className="bg-blue-400">
+                                <Plus />
+                                Buat Jurnal Pertama Anda
+                            </Button>
                         </div>
                     </CardContent>
-                </Card>
-
-                {/* Status Magang */}
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="font-light">
-                            Status Magang
-                        </CardTitle>
-                        <CircleCheckBig className="text-green-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <h1 className="text-xl font-bold text-green-600">
-                            Aktif
-                        </h1>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            Sedang menjalani kegiatan magang
-                        </p>
-                    </CardContent>
-                </Card>
-
-            </div>
-
+                </CardHeader>
+            </Card>
         </div>
     );
 }

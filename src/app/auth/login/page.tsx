@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, User, Mail, Lock, ArrowLeft, Check } from "lucide-react";
+import { supabase } from '@/lib/supabase/client'
+
 
 
 export default function LoginPage() {
@@ -19,19 +21,21 @@ export default function LoginPage() {
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const { error } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    });
 
-    if (!formData.password) {
-      alert("Passwords is required!");
+    if (error) {
+      alert(error.message);
       return;
     }
 
-    // Simulate successful registration
-    console.log("Form Submitted:", formData);
-    router.push("/dashboard");
-  }
+    router.push("/siswa/dashboard");
+  };
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 via white to-blue-100 flex items-center justify-center p-4">
@@ -91,8 +95,8 @@ export default function LoginPage() {
               </button>
               <div className="text-center">
                 <p className="text-sm text-gray-600">
-                  Already have an account?
-                  <a href="/auth/register" className="text-blue-600 hover:underline">Login here</a>
+                  Don't have an account?
+                  <a href="/auth/register" className="text-blue-600 hover:underline"> Create Account</a>
                 </p>
               </div>
             </form>
