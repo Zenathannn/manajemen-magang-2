@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, User, Mail, Lock, ArrowLeft, Check } from "lucide-react";
-import { supabase } from "@/lib/supabase/client"
-
+import { createClient } from "@/lib/supabase/client"; // <-- Ganti import
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     username: "",
     email: "",
@@ -18,6 +18,7 @@ export default function RegisterPage() {
   });
 
   const router = useRouter();
+  const supabase = createClient(); // <-- Tambahkan ini
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -37,24 +38,35 @@ export default function RegisterPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          full_name: formData.username,
-          role: "siswa",
+    setLoading(true); // Optional: tambah loading state
+
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.username,
+            role: "siswa",
+          },
         },
-      },
-    });
+      });
 
-    if (error) {
-      alert(error.message);
-      return;
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      router.push("/auth/login");
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan saat registrasi");
+    } finally {
+      setLoading(false);
     }
-
-    router.push("/auth/login");
   };
+
+  // ... rest of code sama ...
 
   const getPasswordStrength = (password: string) => {
     if (password.length >= 12) return { text: "Strong", color: "text-green-600" };

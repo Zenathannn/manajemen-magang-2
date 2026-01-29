@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, User, Mail, Lock, ArrowLeft, Check } from "lucide-react";
-import { supabase } from '@/lib/supabase/client'
-
-
+import { createClient } from '@/lib/supabase/client'  // <-- Ganti import
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -15,6 +13,7 @@ export default function LoginPage() {
   });
 
   const router = useRouter();
+  const supabase = createClient();  // <-- Tambahkan ini
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -37,6 +36,7 @@ export default function LoginPage() {
     router.push("/siswa/dashboard");
   };
 
+  // ... rest of code sama ...
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 via white to-blue-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
