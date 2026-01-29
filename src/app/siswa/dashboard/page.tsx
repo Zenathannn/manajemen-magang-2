@@ -392,7 +392,7 @@ export default function DashboardPage() {
                         </CardTitle>
                         <CardContent className="pt-4 pl-2 items-center space-y-2">
                             <div className="flex flex-col gap-3 w-80">
-                                <Link href="/siswa/jurnal/create">
+                                <Link href="/siswa/jurnal">
                                     <Button className="w-full bg-blue-500">
                                         <Plus /> Buat jurnal Baru
                                     </Button>

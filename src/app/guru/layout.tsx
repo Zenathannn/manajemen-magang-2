@@ -1,7 +1,7 @@
 "use client"
 
 import { SidebarProvider } from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar } from "@/components/app-sidebar"  // Import sidebar dinamis
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -15,7 +15,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
-export default function SiswaLayout({
+export default function GuruLayout({
     children,
 }: {
     children: React.ReactNode
@@ -41,15 +41,17 @@ export default function SiswaLayout({
                     .eq('id', user.id)
                     .single()
 
-                if (profile?.role !== 'siswa') {
-                    if (profile?.role === 'admin') router.push('/admin/dashboard')
-                    else if (profile?.role === 'guru') router.push('/guru/dashboard')
+                // Proteksi role - hanya guru yang boleh akses
+                if (profile?.role !== 'guru') {
+                    if (profile?.role === 'siswa') router.push('/siswa/dashboard')
+                    else if (profile?.role === 'admin') router.push('/admin/dashboard')
                     else router.push('/auth/login')
                     return
                 }
 
                 setUserData(profile)
             } catch (err) {
+                console.error(err)
                 router.push('/auth/login')
             } finally {
                 setLoading(false)
@@ -75,14 +77,12 @@ export default function SiswaLayout({
     return (
         <SidebarProvider>
             <div className="flex h-screen w-full overflow-hidden">
-                {/* SIDEBAR - Fixed width */}
+                {/* AppSidebar - Dinamis sesuai role */}
                 <AppSidebar />
 
-                {/* AREA KANAN - Full width sisa */}
                 <div className="flex flex-col flex-1 w-full min-w-0">
-
-                    {/* HEADER */}
-                    <header className="h-16 px-6 border-b flex items-center justify-between bg-background shrink-0">
+                    {/* Header */}
+                    <header className="h-16 px-6 border-b flex items-center justify-between bg-white sticky top-0 z-30">
                         <div className="flex flex-col">
                             <h1 className="font-semibold leading-tight">
                                 SMKN 1 Pasuruan
@@ -92,31 +92,25 @@ export default function SiswaLayout({
                             </p>
                         </div>
 
-                        {/* DROPDOWN PROFIL */}
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <button className="flex items-center gap-3 rounded-md px-2 py-1 hover:bg-muted transition">
-                                    <div className="rounded-lg bg-blue-600 p-2">
+                                <button className="flex items-center gap-3 rounded-md px-2 py-1 hover:bg-gray-100 transition">
+                                    <div className="rounded-lg bg-green-600 p-2">
                                         <User className="h-5 w-5 text-white" />
                                     </div>
-                                    <div className="text-left leading-tight">
-                                        <p className="text-sm font-medium">
-                                            {userData?.full_name || 'User'}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">Siswa</p>
+                                    <div className="text-left">
+                                        <p className="text-sm font-medium">{userData?.full_name}</p>
+                                        <p className="text-xs text-gray-500">Guru Pembimbing</p>
                                     </div>
                                 </button>
                             </DropdownMenuTrigger>
 
                             <DropdownMenuContent align="end" className="w-48">
                                 <DropdownMenuLabel>
-                                    <div className="text-left leading-tight">
-                                        <p className="text-sm font-medium">{userData?.full_name}</p>
-                                        <p className="text-xs text-muted-foreground">{userData?.email}</p>
-                                    </div>
+                                    <p className="font-medium">{userData?.full_name}</p>
+                                    <p className="text-xs text-gray-500">{userData?.email}</p>
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-
                                 <DropdownMenuItem
                                     className="text-red-600 cursor-pointer"
                                     onClick={handleLogout}
@@ -128,11 +122,10 @@ export default function SiswaLayout({
                         </DropdownMenu>
                     </header>
 
-                    {/* CONTENT - Scrollable & Full Width */}
-                    <main className="flex-1 overflow-y-auto p-6 w-full">
+                    {/* Content */}
+                    <main className="flex-1 overflow-y-auto p-6 bg-gray-50 w-full">
                         {children}
                     </main>
-
                 </div>
             </div>
         </SidebarProvider>

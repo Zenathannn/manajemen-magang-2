@@ -187,12 +187,13 @@ export default function MagangPage() {
                 return
             }
 
+            // Di handleApply, ganti bagian insert:
             const { error } = await supabase
                 .from('penempatan_magang')
                 .insert({
                     siswa_id: siswaData.id,
                     perusahaan_id: perusahaanId,
-                    status: 'pending',
+                    status: 'menunggu', 
                     posisi: 'Belum ditentukan',
                     tanggal_mulai: new Date().toISOString().split('T')[0],
                     tanggal_selesai: new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().split('T')[0]

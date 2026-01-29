@@ -111,7 +111,7 @@ export default function JurnalPage() {
     useEffect(() => {
         async function fetchJurnalData() {
             try {
-                // 1. AMBIL USER YANG LOGIN
+                // 1. Ambil user yang login
                 const { data: { user } } = await supabase.auth.getUser()
 
                 if (!user) {
@@ -129,13 +129,6 @@ export default function JurnalPage() {
 
                 if (!profile) {
                     console.error("Profile tidak ditemukan")
-                    return
-                }
-
-                // Cek apakah role siswa
-                if (profile.role !== 'siswa') {
-                    console.log("User bukan siswa, redirecting...")
-                    window.location.href = '/unauthorized'
                     return
                 }
 
@@ -200,7 +193,6 @@ export default function JurnalPage() {
 
     return (
         <div className="space-y-6">
-
             {/* ALERT - Tampil jika belum buat jurnal hari ini */}
             {!hasTodayJurnal && (
                 <div className="flex items-center justify-between rounded-xl border border-yellow-200 bg-yellow-50 p-4">
@@ -215,15 +207,10 @@ export default function JurnalPage() {
                             </p>
                         </div>
                     </div>
-                    <Link href="#" onClick={(e) => {
-                        e.preventDefault()
-                        setIsModalOpen(true)
-                    }}>
-                        <Button className="bg-orange-500 hover:bg-orange-600">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Buat Sekarang
-                        </Button>
-                    </Link>
+                    <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setIsModalOpen(true)}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Buat Sekarang
+                    </Button>
                 </div>
             )}
 
@@ -248,7 +235,7 @@ export default function JurnalPage() {
                     <CardHeader className="pb-2">
                         <CardTitle className="font-light text-sm">Disetujui</CardTitle>
                         <CardAction>
-                            <CircleCheckBig className="text-green-500 h-5 w-5" />
+                            <CircleCheckBig className="text-blue-500 h-5 w-5" />
                         </CardAction>
                     </CardHeader>
                     <CardContent>
@@ -263,7 +250,7 @@ export default function JurnalPage() {
                     <CardHeader className="pb-2">
                         <CardTitle className="font-light text-sm">Menunggu</CardTitle>
                         <CardAction>
-                            <Clock className="text-yellow-500 h-5 w-5" />
+                            <Clock className="text-blue-500 h-5 w-5" />
                         </CardAction>
                     </CardHeader>
                     <CardContent>
@@ -278,7 +265,7 @@ export default function JurnalPage() {
                     <CardHeader className="pb-2">
                         <CardTitle className="font-light text-sm">Ditolak</CardTitle>
                         <CardAction>
-                            <CircleX className="text-red-500 h-5 w-5" />
+                            <CircleX className="text-blue-500 h-5 w-5" />
                         </CardAction>
                     </CardHeader>
                     <CardContent>
@@ -298,20 +285,14 @@ export default function JurnalPage() {
                             <FileText className="text-blue-500" />
                             Riwayat Jurnal
                         </CardTitle>
-                        <Link href="#" onClick={(e) => {
-                            e.preventDefault()
-                            setIsModalOpen(true)
-                        }}>
-                            <Button size="sm">
-                                <Plus className="mr-2 h-4 w-4" />
-                                Tambah Jurnal
-                            </Button>
-                        </Link>
+                        <Button size="sm" onClick={() => setIsModalOpen(true)}>
+                            <Plus className="mr-2 h-4 w-4" />
+                            Tambah Jurnal
+                        </Button>
                     </div>
                 </CardHeader>
 
                 <CardContent className="space-y-4">
-
                     {/* SEARCH */}
                     <div className="flex items-center justify-between gap-4">
                         <div className="relative w-full max-w-sm">
@@ -401,20 +382,15 @@ export default function JurnalPage() {
                             <p className="text-sm text-muted-foreground">
                                 {searchQuery ? "Tidak ada jurnal yang cocok dengan pencarian" : "Mulai dokumentasikan kegiatan magang Anda"}
                             </p>
-                            <Link href="#" onClick={(e) => {
-                                e.preventDefault()
-                                setIsModalOpen(true)
-                            }}>
-                                <Button className="mt-2">
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    Buat Jurnal Pertama
-                                </Button>
-                            </Link>
+                            <Button className="mt-2" onClick={() => setIsModalOpen(true)}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Buat Jurnal Pertama
+                            </Button>
                         </div>
                     )}
-
                 </CardContent>
             </Card>
+
             <CreateJurnalModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
