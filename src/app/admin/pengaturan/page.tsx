@@ -28,6 +28,7 @@ import {
     Info
 } from "lucide-react"
 import Image from "next/image"
+import { logActivity } from "@/lib/activity-logger"
 
 interface SchoolSettings {
     id: string
@@ -90,20 +91,85 @@ export default function PengaturanSekolah() {
         try {
             setSaving(true)
 
-            const { error } = await supabase
+            const { data: existingData } = await supabase
                 .from("settings")
-                .upsert({
-                    ...settings,
-                    updated_at: new Date().toISOString()
-                })
+                .select("id")
+                .single()
 
-            if (error) throw error
+            let result
+
+            if (existingData) {
+                // UPDATE data yang ada
+                const { data, error } = await supabase
+                    .from("settings")
+                    .update({
+                        nama_sekolah: settings.nama_sekolah,
+                        nama_sistem: settings.nama_sistem,
+                        alamat: settings.alamat,
+                        telepon: settings.telepon,
+                        email: settings.email,
+                        website: settings.website,
+                        kepala_sekolah: settings.kepala_sekolah,
+                        nip_kepala_sekolah: settings.nip_kepala_sekolah,
+                        logo_url: settings.logo_url,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq("id", existingData.id)
+                    .select()
+                    .single()
+
+                if (error) throw error
+                result = data
+
+                // LOG ACTIVITY - UPDATE SETTINGS
+                await logActivity(
+                    'updated',
+                    'settings',
+                    existingData.id,
+                    `Admin mengubah pengaturan sekolah: ${settings.nama_sekolah}`
+                )
+            } else {
+                // INSERT data baru (tanpa id, biar auto-generate)
+                const { data, error } = await supabase
+                    .from("settings")
+                    .insert({
+                        nama_sekolah: settings.nama_sekolah,
+                        nama_sistem: settings.nama_sistem,
+                        alamat: settings.alamat,
+                        telepon: settings.telepon,
+                        email: settings.email,
+                        website: settings.website,
+                        kepala_sekolah: settings.kepala_sekolah,
+                        nip_kepala_sekolah: settings.nip_kepala_sekolah,
+                        logo_url: settings.logo_url,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    })
+                    .select()
+                    .single()
+
+                if (error) throw error
+                result = data
+
+                // LOG ACTIVITY - CREATE SETTINGS
+                await logActivity(
+                    'created',
+                    'settings',
+                    data.id,
+                    `Admin membuat pengaturan sekolah baru: ${settings.nama_sekolah}`
+                )
+            }
+
+            // Update state dengan data dari database (termasuk ID baru)
+            if (result) {
+                setSettings(result)
+            }
 
             setIsEditing(false)
             alert("Pengaturan berhasil disimpan!")
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving settings:", error)
-            alert("Gagal menyimpan pengaturan")
+            alert("Gagal menyimpan pengaturan: " + (error.message || "Unknown error"))
         } finally {
             setSaving(false)
         }

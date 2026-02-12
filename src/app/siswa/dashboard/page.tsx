@@ -23,6 +23,7 @@ interface DashboardData {
         email: string
     } | null
     siswa: {
+        id: string
         nis: string
         kelas: string
         jurusan: string
@@ -53,6 +54,9 @@ interface DashboardData {
         status_validasi: string
     }[]
 }
+
+// Helper type untuk handle Supabase relational query result
+type SupabaseRelation<T> = T[] | T | null
 
 export default function DashboardPage() {
     const [data, setData] = useState<DashboardData | null>(null)
@@ -105,22 +109,34 @@ export default function DashboardPage() {
                     const { data: penempatan } = await supabase
                         .from('penempatan_magang')
                         .select(`
-              id,
-              posisi,
-              status,
-              perusahaan:perusahaan_id (nama_perusahaan, alamat),
-              guru:guru_pembimbing_id (nama, mata_pelajaran)
-            `)
+                            id,
+                            posisi,
+                            status,
+                            perusahaan:perusahaan_id (nama_perusahaan, alamat),
+                            guru:guru_pembimbing_id (nama, mata_pelajaran)
+                        `)
                         .eq('siswa_id', siswaData.id)
                         .eq('status', 'aktif')
                         .maybeSingle()
 
-                    penempatanData = penempatan
+                    // Handle Supabase relational query result (bisa array atau object)
+                    if (penempatan) {
+                        const normalizeRelation = <T,>(rel: SupabaseRelation<T>): T | null => {
+                            if (Array.isArray(rel)) return rel[0] || null
+                            return rel
+                        }
+
+                        penempatanData = {
+                            ...penempatan,
+                            perusahaan: normalizeRelation(penempatan.perusahaan as SupabaseRelation<{ nama_perusahaan: string, alamat: string }>),
+                            guru: normalizeRelation(penempatan.guru as SupabaseRelation<{ nama: string, mata_pelajaran: string }>)
+                        }
+                    }
                 }
 
                 // 5. Hitung statistik jurnal
                 let jurnalStats = { total: 0, disetujui: 0, menunggu: 0, ditolak: 0 }
-                let recentJournals: any[] = []
+                let recentJournals: DashboardData['recentJournals'] = []
 
                 if (siswaData) {
                     // Ambil semua jurnal untuk hitung statistik
@@ -149,43 +165,15 @@ export default function DashboardPage() {
                     recentJournals = recent || []
                 }
 
-                interface DashboardData {
-                    profile: {
-                        full_name: string | null
-                        email: string
-                    } | null
-                    siswa: {
-                        id: string  // tambahkan id untuk query
-                        nis: string
-                        kelas: string
-                        jurusan: string
-                    } | null
-                    penempatan: {
-                        id: string
-                        posisi: string
-                        status: string
-                        perusahaan: {
-                            nama_perusahaan: string
-                            alamat: string
-                        }[] | null  // <-- Ubah jadi array
-                        guru: {
-                            nama: string
-                            mata_pelajaran: string
-                        }[] | null  // <-- Ubah jadi array
-                    } | null
-                    jurnalStats: {
-                        total: number
-                        disetujui: number
-                        menunggu: number
-                        ditolak: number
-                    }
-                    recentJournals: {
-                        id: string
-                        tanggal: string
-                        kegiatan: string
-                        status_validasi: string
-                    }[]
-                }
+                // FIX: Set data ke state!
+                setData({
+                    profile,
+                    siswa: siswaData,
+                    penempatan: penempatanData,
+                    jurnalStats,
+                    recentJournals
+                })
+
             } catch (err) {
                 console.error("Error fetching dashboard:", err)
                 setError(err instanceof Error ? err.message : "Terjadi kesalahan")
@@ -231,14 +219,16 @@ export default function DashboardPage() {
         <div className="space-y-7">
             {/* Header Card */}
             <Card className="bg-blue-600 text-white">
-                <CardContent>
+                <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-2xl font-bold">
                                 Selamat Datang, {data?.profile?.full_name || 'Siswa'}!
                             </h1>
                             <p className="mt-1 text-sm text-blue-100">
-                                NIS {data?.siswa?.nis || '-'} • {data?.siswa?.kelas || ''} {data?.siswa?.jurusan || ''}
+                                {data?.siswa?.nis ? `NIS | ${data.siswa.nis}` : 'NIS belum diisi'}
+                                {data?.siswa?.kelas ? ` • ${data.siswa.kelas}` : ''}
+                                {data?.siswa?.jurusan ? ` ${data.siswa.jurusan}` : ''}
                             </p>
                         </div>
                         <div className="flex items-center gap-2 text-blue-100">
@@ -250,187 +240,172 @@ export default function DashboardPage() {
             </Card>
 
             {/* Statistics Cards */}
-            <div className="flex items-center justify-between gap-4">
-                <Card className="h-40 w-72">
-                    <CardHeader>
-                        <CardTitle className="font-light">Total Jurnal</CardTitle>
-                        <CardAction>
-                            <FileText className="text-blue-500" />
-                        </CardAction>
-                        <CardContent className="pl-0">
-                            <h1 className="pt-4 text-3xl font-bold">
-                                {data?.jurnalStats.total || 0}
-                            </h1>
-                            <p className="pt-4 text-sm text-muted-foreground">
-                                Jurnal yang dibuat
-                            </p>
-                        </CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Jurnal</CardTitle>
+                            <FileText className="h-4 w-4 text-blue-500" />
+                        </div>
                     </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{data?.jurnalStats.total || 0}</div>
+                        <p className="text-xs text-muted-foreground">Jurnal yang dibuat</p>
+                    </CardContent>
                 </Card>
 
-                <Card className="h-40 w-72">
-                    <CardHeader>
-                        <CardTitle className="font-light">Disetujui</CardTitle>
-                        <CardAction>
-                            <CircleCheckBig className="text-blue-500" />
-                        </CardAction>
-                        <CardContent className="pl-0">
-                            <h1 className="pt-4 text-3xl font-bold">
-                                {data?.jurnalStats.disetujui || 0}
-                            </h1>
-                            <p className="pt-4 text-sm text-muted-foreground">
-                                Jurnal disetujui guru
-                            </p>
-                        </CardContent>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Disetujui</CardTitle>
+                            <CircleCheckBig className="h-4 w-4 text-green-500" />
+                        </div>
                     </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{data?.jurnalStats.disetujui || 0}</div>
+                        <p className="text-xs text-muted-foreground">Jurnal disetujui guru</p>
+                    </CardContent>
                 </Card>
 
-                <Card className="h-40 w-72">
-                    <CardHeader>
-                        <CardTitle className="font-light">Menunggu</CardTitle>
-                        <CardAction>
-                            <Clock className="text-blue-500" />
-                        </CardAction>
-                        <CardContent className="pl-0">
-                            <h1 className="pt-4 text-3xl font-bold">
-                                {data?.jurnalStats.menunggu || 0}
-                            </h1>
-                            <p className="pt-4 text-sm text-muted-foreground">
-                                belum di verifikasi
-                            </p>
-                        </CardContent>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Menunggu</CardTitle>
+                            <Clock className="h-4 w-4 text-yellow-500" />
+                        </div>
                     </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{data?.jurnalStats.menunggu || 0}</div>
+                        <p className="text-xs text-muted-foreground">Belum diverifikasi</p>
+                    </CardContent>
                 </Card>
 
-                <Card className="h-40 w-72">
-                    <CardHeader>
-                        <CardTitle className="font-light">Ditolak</CardTitle>
-                        <CardAction>
-                            <CircleX className="text-blue-500" />
-                        </CardAction>
-                        <CardContent className="pl-0">
-                            <h1 className="pt-4 text-3xl font-bold">
-                                {data?.jurnalStats.ditolak || 0}
-                            </h1>
-                            <p className="pt-4 text-sm text-muted-foreground">
-                                perlu diperbaiki
-                            </p>
-                        </CardContent>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Ditolak</CardTitle>
+                            <CircleX className="h-4 w-4 text-red-500" />
+                        </div>
                     </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{data?.jurnalStats.ditolak || 0}</div>
+                        <p className="text-xs text-muted-foreground">Perlu diperbaiki</p>
+                    </CardContent>
                 </Card>
             </div>
 
             {/* Info Magang & Aksi Cepat */}
-            <div className="flex items-center justify-between gap-4">
-                <Card className="h-60 flex-1">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="lg:col-span-2">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 font-light">
                             <GraduationCap className="text-blue-500" />
                             Informasi Magang
                         </CardTitle>
-                        <CardContent className="pl-0 flex flex-col gap-5">
-                            {data?.penempatan ? (
-                                <>
-                                    <div className="space-y-2 flex justify-between">
-                                        <div className="flex items-start">
-                                            <div className="bg-blue-200 p-3 m-2 rounded-2xl">
-                                                <Newspaper className="text-blue-600" />
-                                            </div>
-                                            <div className="pt-3 space-y-0.5">
-                                                <p className="text-sm text-muted-foreground">Tempat Magang</p>
-                                                <h1 className="text-lg font-semibold">
-                                                    {data.penempatan.perusahaan?.nama_perusahaan || '-'}
-                                                </h1>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {data.penempatan.perusahaan?.alamat || '-'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start">
-                                            <div className="bg-green-200 p-3 m-2 rounded-2xl">
-                                                <User className="text-green-600" />
-                                            </div>
-                                            <div className="pt-3 space-y-0.5">
-                                                <p className="text-sm text-muted-foreground">Guru Pembimbing</p>
-                                                <h1 className="text-lg font-semibold">
-                                                    {data.penempatan.guru?.nama || '-'}
-                                                </h1>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {data.penempatan.guru?.mata_pelajaran || '-'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="bg-blue-100 w-full h-13 rounded-sm flex items-center justify-between border-2 border-blue-200">
-                                        <div className="flex flex-row gap-3 items-center p-4">
-                                            <Calendar className="h-4 w-4 text-blue-500" />
-                                            <span className="text-sm font-medium">
-                                                {data.penempatan.posisi}
-                                            </span>
-                                        </div>
-                                        <div className="p-4">
-                                            <Badge className={getStatusBadge(data.penempatan.status)}>
-                                                {data.penempatan.status === 'aktif' ? 'Aktif' : data.penempatan.status}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                                    <p>Belum ada penempatan magang</p>
-                                </div>
-                            )}
-                        </CardContent>
                     </CardHeader>
+                    <CardContent>
+                        {data?.penempatan ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="bg-blue-100 p-3 rounded-xl">
+                                            <Newspaper className="h-5 w-5 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Tempat Magang</p>
+                                            <h3 className="font-semibold">
+                                                {data.penempatan.perusahaan?.nama_perusahaan || '-'}
+                                            </h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                {data.penempatan.perusahaan?.alamat || '-'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <div className="bg-green-100 p-3 rounded-xl">
+                                            <User className="h-5 w-5 text-green-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Guru Pembimbing</p>
+                                            <h3 className="font-semibold">
+                                                {data.penempatan.guru?.nama || '-'}
+                                            </h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                {data.penempatan.guru?.mata_pelajaran || '-'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-blue-50 rounded-lg flex items-center justify-between p-4 border border-blue-100">
+                                    <div className="flex items-center gap-3">
+                                        <Calendar className="h-4 w-4 text-blue-500" />
+                                        <span className="text-sm font-medium">
+                                            Posisi: {data.penempatan.posisi}
+                                        </span>
+                                    </div>
+                                    <Badge className={getStatusBadge(data.penempatan.status)}>
+                                        {data.penempatan.status === 'aktif' ? 'Aktif' : data.penempatan.status}
+                                    </Badge>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                                <GraduationCap className="h-8 w-8 mb-2 opacity-50" />
+                                <p>Belum ada penempatan magang</p>
+                                <p className="text-sm">Hubungi admin untuk informasi lebih lanjut</p>
+                            </div>
+                        )}
+                    </CardContent>
                 </Card>
 
-                <Card className="h-60 w-100">
+                <Card>
                     <CardHeader>
                         <CardTitle className="font-light flex items-center gap-2">
                             <TrendingUp className="text-blue-500" />
                             Aksi Cepat
                         </CardTitle>
-                        <CardContent className="pt-4 pl-2 items-center space-y-2">
-                            <div className="flex flex-col gap-3 w-80">
-                                <Link href="/siswa/jurnal">
-                                    <Button className="w-full bg-blue-500">
-                                        <Plus /> Buat jurnal Baru
-                                    </Button>
-                                </Link>
-                                <Link href="/siswa/jurnal">
-                                    <Button variant={"outline"} className="w-full">
-                                        <BookOpen className="text-blue-500" /> Lihat Semua Jurnal
-                                    </Button>
-                                </Link>
-                                <Link href="/siswa/magang">
-                                    <Button variant={"outline"} className="w-full">
-                                        <GraduationCap className="text-blue-500" /> Info Magang
-                                    </Button>
-                                </Link>
-                            </div>
-                        </CardContent>
                     </CardHeader>
+                    <CardContent className="space-y-3">
+                        <Link href="/siswa/jurnal">
+                            <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                                <Plus className="h-4 w-4 mr-2" />
+                                Buat Jurnal Baru
+                            </Button>
+                        </Link>
+                        <Link href="/siswa/jurnal">
+                            <Button variant="outline" className="w-full">
+                                <BookOpen className="h-4 w-4 mr-2 text-blue-500" />
+                                Lihat Semua Jurnal
+                            </Button>
+                        </Link>
+                        <Link href="/siswa/magang">
+                            <Button variant="outline" className="w-full">
+                                <GraduationCap className="h-4 w-4 mr-2 text-blue-500" />
+                                Info Magang
+                            </Button>
+                        </Link>
+                    </CardContent>
                 </Card>
             </div>
 
             {/* Aktivitas Terbaru */}
-            <Card className="min-h-[300px]">
+            <Card>
                 <CardHeader>
                     <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center flex-row gap-3 font-light">
+                        <CardTitle className="flex items-center gap-2 font-light">
                             <BookOpen className="text-blue-500" />
                             Aktivitas Jurnal Terbaru
                         </CardTitle>
                         <Link href="/siswa/jurnal">
-                            <CardAction className="text-blue-500 cursor-pointer hover:underline">
+                            <span className="text-sm text-blue-500 cursor-pointer hover:underline">
                                 Lihat Semua
-                            </CardAction>
+                            </span>
                         </Link>
                     </div>
                 </CardHeader>
                 <CardContent>
                     {data?.recentJournals && data.recentJournals.length > 0 ? (
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             {data.recentJournals.map((jurnal) => (
                                 <div key={jurnal.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
                                     <div className="flex items-start gap-4">
@@ -454,13 +429,13 @@ export default function DashboardPage() {
                             ))}
                         </div>
                     ) : (
-                        <div className="flex flex-col gap-2 items-center justify-center h-48">
-                            <BookOpen className="h-15 w-15 text-blue-300" />
-                            <h1 className="text-lg font-medium">Belum Ada Jurnal</h1>
-                            <p className="text-sm text-muted-foreground">Mari dokumentasikan kegiatan magang anda</p>
+                        <div className="flex flex-col items-center justify-center h-48 text-center">
+                            <BookOpen className="h-12 w-12 text-blue-200 mb-3" />
+                            <h3 className="text-lg font-medium text-gray-900">Belum Ada Jurnal</h3>
+                            <p className="text-sm text-muted-foreground mb-4">Mari dokumentasikan kegiatan magang anda</p>
                             <Link href="/siswa/jurnal/create">
-                                <Button className="bg-blue-400 mt-2">
-                                    <Plus />
+                                <Button className="bg-blue-600 hover:bg-blue-700">
+                                    <Plus className="h-4 w-4 mr-2" />
                                     Buat Jurnal Pertama Anda
                                 </Button>
                             </Link>

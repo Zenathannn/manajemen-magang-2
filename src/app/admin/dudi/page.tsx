@@ -41,7 +41,11 @@ import {
     Loader2,
     MapPin
 } from "lucide-react"
-import Link from "next/link"
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { logActivity } from "@/lib/activity-logger"
 
 interface DudiData {
     id: string
@@ -67,6 +71,24 @@ export default function ManajemenDudi() {
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [filterStatus, setFilterStatus] = useState("semua")
+
+    // State untuk modal tambah dan edit
+    const [isModalOpen, setIsModalOpen] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+    const [selectedDudi, setSelectedDudi] = useState<DudiData | null>(null)
+    const [saving, setSaving] = useState(false)
+
+    const [formData, setFormData] = useState({
+        nama_perusahaan: '',
+        bidang_usaha: '',
+        alamat: '',
+        telepon: '',
+        email: '',
+        pic_nama: '',
+        pic_jabatan: '',
+        pic_telepon: '',
+        is_active: true
+    })
 
     useEffect(() => {
         async function fetchDudi() {
@@ -120,6 +142,10 @@ export default function ManajemenDudi() {
     }
 
     const handleDelete = async (id: string) => {
+        // Cari data DUDI untuk log
+        const dudi = dudiList.find(d => d.id === id)
+        const dudiName = dudi?.nama_perusahaan || 'Unknown'
+        
         if (!confirm("Yakin ingin menghapus DUDI ini?")) return
 
         try {
@@ -129,10 +155,138 @@ export default function ManajemenDudi() {
                 .eq("id", id)
 
             if (error) throw error
+            
+            // LOG ACTIVITY - DELETE DUDI
+            await logActivity(
+                'deleted',
+                'dudi',
+                id,
+                `Admin menghapus DUDI ${dudiName}`
+            )
+            
             setDudiList(prev => prev.filter(d => d.id !== id))
         } catch (error) {
             console.error("Error deleting dudi:", error)
             alert("Gagal menghapus DUDI")
+        }
+    }
+
+    // Buka modal tambah
+    function openAddModal() {
+        console.log("Opening add modal...")
+        setIsEditing(false)
+        setSelectedDudi(null)
+        setFormData({
+            nama_perusahaan: '',
+            bidang_usaha: '',
+            alamat: '',
+            telepon: '',
+            email: '',
+            pic_nama: '',
+            pic_jabatan: '',
+            pic_telepon: '',
+            is_active: true
+        })
+        setIsModalOpen(true)
+        console.log("Modal should be open:", true)
+    }
+
+    // Buka modal edit
+    function openEditModal(dudi: DudiData) {
+        console.log("Opening edit modal for:", dudi.nama_perusahaan)
+        setIsEditing(true)
+        setSelectedDudi(dudi)
+        setFormData({
+            nama_perusahaan: dudi.nama_perusahaan,
+            bidang_usaha: dudi.bidang_usaha,
+            alamat: dudi.alamat,
+            telepon: dudi.telepon,
+            email: dudi.email,
+            pic_nama: dudi.pic_nama,
+            pic_jabatan: dudi.pic_jabatan,
+            pic_telepon: dudi.pic_telepon,
+            is_active: dudi.is_active
+        })
+        setIsModalOpen(true)
+    }
+
+    // Tutup modal
+    function closeModal() {
+        setIsModalOpen(false)
+        setSelectedDudi(null)
+    }
+
+    // Simpan data (tambah atau edit)
+    async function handleSave(e: React.FormEvent) {
+        e.preventDefault()
+        setSaving(true)
+
+        try {
+            if (isEditing && selectedDudi) {
+                // UPDATE
+                const { error } = await supabase
+                    .from("perusahaan")
+                    .update({
+                        nama_perusahaan: formData.nama_perusahaan,
+                        bidang_usaha: formData.bidang_usaha,
+                        alamat: formData.alamat,
+                        telepon: formData.telepon,
+                        email: formData.email,
+                        pic_nama: formData.pic_nama,
+                        pic_jabatan: formData.pic_jabatan,
+                        pic_telepon: formData.pic_telepon,
+                        is_active: formData.is_active
+                    })
+                    .eq("id", selectedDudi.id)
+
+                if (error) throw error
+                
+                // LOG ACTIVITY - UPDATE DUDI
+                await logActivity(
+                    'updated',
+                    'dudi',
+                    selectedDudi.id,
+                    `Admin mengubah data DUDI ${formData.nama_perusahaan}`
+                )
+                
+                alert("Data DUDI berhasil diperbarui")
+            } else {
+                // CREATE
+                const { data, error } = await supabase
+                    .from("perusahaan")
+                    .insert({
+                        nama_perusahaan: formData.nama_perusahaan,
+                        bidang_usaha: formData.bidang_usaha,
+                        alamat: formData.alamat,
+                        telepon: formData.telepon,
+                        email: formData.email,
+                        pic_nama: formData.pic_nama,
+                        pic_jabatan: formData.pic_jabatan,
+                        pic_telepon: formData.pic_telepon,
+                        is_active: formData.is_active
+                    })
+                    .select()
+
+                if (error) throw error
+                
+                // LOG ACTIVITY - CREATE DUDI
+                await logActivity(
+                    'created',
+                    'dudi',
+                    data[0].id,
+                    `Admin menambahkan DUDI baru ${formData.nama_perusahaan}`
+                )
+                
+                alert("DUDI berhasil ditambahkan")
+            }
+
+            closeModal()
+            // Refresh data
+            window.location.reload()
+        } catch (err: any) {
+            alert("Gagal menyimpan: " + err.message)
+        } finally {
+            setSaving(false)
         }
     }
 
@@ -223,12 +377,10 @@ export default function ManajemenDudi() {
                             <Building2 className="h-5 w-5 text-cyan-500" />
                             Daftar DUDI
                         </CardTitle>
-                        <Link href="/admin/dudi/tambah">
-                            <Button className="bg-cyan-600 hover:bg-cyan-700">
-                                <Plus className="w-4 h-4 mr-2" />
-                                Tambah DUDI
-                            </Button>
-                        </Link>
+                        <Button className="bg-cyan-600 hover:bg-cyan-700" onClick={openAddModal}>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Tambah DUDI
+                        </Button>
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -340,11 +492,14 @@ export default function ManajemenDudi() {
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="flex items-center gap-1">
-                                                        <Link href={`/admin/dudi/edit/${dudi.id}`}>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                                                                <Edit className="h-4 w-4" />
-                                                            </Button>
-                                                        </Link>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                            onClick={() => openEditModal(dudi)}
+                                                        >
+                                                            <Edit className="h-4 w-4" />
+                                                        </Button>
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
@@ -374,6 +529,148 @@ export default function ManajemenDudi() {
                     </div>
                 </CardContent>
             </Card>
+            
+            {/* Modal Tambah/Edit DUDI */}
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <DialogContent className="sm:max-w-[600px]">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {isEditing ? 'Edit Data DUDI' : 'Tambah DUDI Baru'}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {isEditing
+                                ? 'Perbarui informasi DUDI di bawah ini'
+                                : 'Isi data lengkap DUDI mitra sekolah'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleSave}>
+                        <div className="grid gap-4 py-4">
+                            {/* Nama Perusahaan */}
+                            <div className="space-y-2">
+                                <Label htmlFor="nama_perusahaan">Nama Perusahaan *</Label>
+                                <Input
+                                    id="nama_perusahaan"
+                                    value={formData.nama_perusahaan}
+                                    onChange={(e) => setFormData({ ...formData, nama_perusahaan: e.target.value })}
+                                    placeholder="Contoh: PT. Maju Bersama"
+                                    required
+                                />
+                            </div>
+
+                            {/* Bidang Usaha */}
+                            <div className="space-y-2">
+                                <Label htmlFor="bidang_usaha">Bidang Usaha</Label>
+                                <Input
+                                    id="bidang_usaha"
+                                    value={formData.bidang_usaha}
+                                    onChange={(e) => setFormData({ ...formData, bidang_usaha: e.target.value })}
+                                    placeholder="Contoh: Teknologi Informasi"
+                                />
+                            </div>
+
+                            {/* Alamat */}
+                            <div className="space-y-2">
+                                <Label htmlFor="alamat">Alamat *</Label>
+                                <Input
+                                    id="alamat"
+                                    value={formData.alamat}
+                                    onChange={(e) => setFormData({ ...formData, alamat: e.target.value })}
+                                    placeholder="Alamat lengkap perusahaan"
+                                    required
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                {/* Telepon */}
+                                <div className="space-y-2">
+                                    <Label htmlFor="telepon">Telepon</Label>
+                                    <Input
+                                        id="telepon"
+                                        value={formData.telepon}
+                                        onChange={(e) => setFormData({ ...formData, telepon: e.target.value })}
+                                        placeholder="031-1234567"
+                                    />
+                                </div>
+                                {/* Email */}
+                                <div className="space-y-2">
+                                    <Label htmlFor="email">Email</Label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        placeholder="email@perusahaan.com"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4 mt-2">
+                                <h4 className="text-sm font-medium text-gray-700 mb-3">Penanggung Jawab (PIC)</h4>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* Nama PIC */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="pic_nama">Nama PIC</Label>
+                                        <Input
+                                            id="pic_nama"
+                                            value={formData.pic_nama}
+                                            onChange={(e) => setFormData({ ...formData, pic_nama: e.target.value })}
+                                            placeholder="Nama penanggung jawab"
+                                        />
+                                    </div>
+                                    {/* Jabatan PIC */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="pic_jabatan">Jabatan</Label>
+                                        <Input
+                                            id="pic_jabatan"
+                                            value={formData.pic_jabatan}
+                                            onChange={(e) => setFormData({ ...formData, pic_jabatan: e.target.value })}
+                                            placeholder="Contoh: HRD Manager"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Telepon PIC */}
+                                <div className="space-y-2 mt-4">
+                                    <Label htmlFor="pic_telepon">Telepon PIC</Label>
+                                    <Input
+                                        id="pic_telepon"
+                                        value={formData.pic_telepon}
+                                        onChange={(e) => setFormData({ ...formData, pic_telepon: e.target.value })}
+                                        placeholder="0812-3456-7890"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Status Aktif */}
+                            <div className="space-y-2">
+                                <Label htmlFor="is_active">Status</Label>
+                                <Select
+                                    value={formData.is_active ? "aktif" : "nonaktif"}
+                                    onValueChange={(v) => setFormData({ ...formData, is_active: v === "aktif" })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="aktif">Aktif</SelectItem>
+                                        <SelectItem value="nonaktif">Tidak Aktif</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={closeModal}>
+                                Batal
+                            </Button>
+                            <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700" disabled={saving}>
+                                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                                {saving ? 'Menyimpan...' : (isEditing ? 'Simpan Perubahan' : 'Tambah DUDI')}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

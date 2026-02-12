@@ -34,12 +34,12 @@ interface PenempatanData {
         nama_perusahaan: string
         alamat: string
         telepon: string | null
-    }
+    } | null
     guru: {
         nama: string
         nip: string
         mata_pelajaran: string | null
-    }
+    } | null
 }
 
 interface SiswaData {
@@ -50,7 +50,7 @@ interface SiswaData {
     sekolah: string
     profile: {
         full_name: string
-    }
+    } | null
 }
 
 export default function MagangPage() {
@@ -67,6 +67,7 @@ export default function MagangPage() {
     const [loadingPerusahaan, setLoadingPerusahaan] = useState(false)
 
     const formatDate = (date: string) => {
+        if (!date) return '-'
         return new Date(date).toLocaleDateString('id-ID', {
             day: 'numeric',
             month: 'long',
@@ -83,13 +84,12 @@ export default function MagangPage() {
             case 'dibatalkan':
                 return <Badge className="bg-red-100 text-red-800">Dibatalkan</Badge>
             case 'pending':
-                return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+                return <Badge className="bg-yellow-100 text-yellow-800">Menunggu Konfirmasi</Badge>
             default:
                 return <Badge variant="secondary">{status}</Badge>
         }
     }
 
-    // Filter perusahaan
     useEffect(() => {
         if (searchPerusahaan.trim() === "") {
             setFilteredPerusahaan(perusahaanList)
@@ -103,7 +103,6 @@ export default function MagangPage() {
         }
     }, [searchPerusahaan, perusahaanList])
 
-    // Fetch data siswa & penempatan
     useEffect(() => {
         async function fetchMagangData() {
             try {
@@ -148,7 +147,6 @@ export default function MagangPage() {
         fetchMagangData()
     }, [])
 
-    // Fetch perusahaan
     useEffect(() => {
         if (activeTab === "cari") fetchPerusahaan()
     }, [activeTab])
@@ -187,14 +185,14 @@ export default function MagangPage() {
                 return
             }
 
-            // Di handleApply, ganti bagian insert:
             const { error } = await supabase
                 .from('penempatan_magang')
                 .insert({
                     siswa_id: siswaData.id,
                     perusahaan_id: perusahaanId,
-                    status: 'menunggu', 
+                    status: 'pending',
                     posisi: 'Belum ditentukan',
+                    divisi: 'Belum ditentukan',
                     tanggal_mulai: new Date().toISOString().split('T')[0],
                     tanggal_selesai: new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().split('T')[0]
                 })
@@ -217,7 +215,6 @@ export default function MagangPage() {
 
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-lg shadow-lg">
                 <h1 className="text-2xl font-bold">Magang Siswa</h1>
                 <p className="text-blue-100 mt-1 text-sm">
@@ -237,18 +234,16 @@ export default function MagangPage() {
                     </TabsTrigger>
                 </TabsList>
 
-                {/* TAB STATUS MAGANG */}
                 {activeTab === "status" && (
                     <div className="mt-6 space-y-6">
-                        {/* Card Info Singkat */}
                         {siswaData && (
                             <Card className="border-l-4 border-l-blue-500">
                                 <CardContent className="flex items-center justify-between p-6">
                                     <div>
                                         <h3 className="font-semibold text-lg text-gray-900">
-                                            {siswaData.profile.full_name} • {siswaData.nis}
+                                            {siswaData.profile?.full_name || 'Unknown'} • {siswaData.nis || '-'}
                                         </h3>
-                                        <p className="text-gray-500 text-sm">{siswaData.kelas} • {siswaData.jurusan}</p>
+                                        <p className="text-gray-500 text-sm">{siswaData.kelas || '-'} • {siswaData.jurusan || '-'}</p>
                                     </div>
                                     <div className="text-right">
                                         <div className="text-2xl font-bold text-blue-600">{riwayatPenempatan.length}/3</div>
@@ -258,7 +253,6 @@ export default function MagangPage() {
                             </Card>
                         )}
 
-                        {/* Detail Magang Aktif */}
                         {penempatanAktif ? (
                             <Card className="border border-green-200">
                                 <CardHeader>
@@ -273,15 +267,23 @@ export default function MagangPage() {
                                 <CardContent className="space-y-4">
                                     <div className="bg-gray-50 p-4 rounded-lg">
                                         <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Tempat Magang</h4>
-                                        <p className="font-semibold">{penempatanAktif.perusahaan.nama_perusahaan}</p>
+                                        <p className="font-semibold">{penempatanAktif.perusahaan?.nama_perusahaan || 'Belum ditentukan'}</p>
                                         <p className="text-sm text-gray-600 flex items-center gap-1">
-                                            <MapPin className="w-3 h-3" /> {penempatanAktif.perusahaan.alamat}
+                                            <MapPin className="w-3 h-3" /> {penempatanAktif.perusahaan?.alamat || '-'}
                                         </p>
+                                        {penempatanAktif.perusahaan?.telepon && (
+                                            <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
+                                                <Phone className="w-3 h-3" /> {penempatanAktif.perusahaan.telepon}
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="bg-gray-50 p-4 rounded-lg">
                                         <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Guru Pembimbing</h4>
-                                        <p className="font-semibold">{penempatanAktif.guru.nama}</p>
-                                        <p className="text-sm text-gray-600">NIP: {penempatanAktif.guru.nip}</p>
+                                        <p className="font-semibold">{penempatanAktif.guru?.nama || 'Belum ditentukan'}</p>
+                                        <p className="text-sm text-gray-600">NIP: {penempatanAktif.guru?.nip || '-'}</p>
+                                        {penempatanAktif.guru?.mata_pelajaran && (
+                                            <p className="text-sm text-gray-600">Mapel: {penempatanAktif.guru.mata_pelajaran}</p>
+                                        )}
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="bg-blue-50 p-3 rounded">
@@ -306,15 +308,14 @@ export default function MagangPage() {
                             </Card>
                         )}
 
-                        {/* Riwayat */}
                         <div>
                             <h3 className="font-semibold mb-3">Riwayat Pendaftaran</h3>
                             {riwayatPenempatan.map((item) => (
                                 <Card key={item.id} className="mb-2">
                                     <CardContent className="flex items-center justify-between p-4">
                                         <div>
-                                            <p className="font-semibold">{item.perusahaan.nama_perusahaan}</p>
-                                            <p className="text-sm text-gray-500">{item.posisi}</p>
+                                            <p className="font-semibold">{item.perusahaan?.nama_perusahaan || 'Perusahaan tidak ditemukan'}</p>
+                                            <p className="text-sm text-gray-500">{item.posisi || '-'}</p>
                                         </div>
                                         {getStatusBadge(item.status)}
                                     </CardContent>
@@ -324,7 +325,6 @@ export default function MagangPage() {
                     </div>
                 )}
 
-                {/* TAB CARI TEMPAT MAGANG */}
                 {activeTab === "cari" && (
                     <div className="mt-6 space-y-4">
                         {penempatanAktif && (
@@ -354,8 +354,15 @@ export default function MagangPage() {
                                 </div>
                             ) : filteredPerusahaan.length > 0 ? (
                                 filteredPerusahaan.map((perusahaan) => {
-                                    const alreadyApplied = riwayatPenempatan.some(r => r.perusahaan.nama_perusahaan === perusahaan.nama_perusahaan)
-                                    const isActive = riwayatPenempatan.some(r => r.perusahaan.nama_perusahaan === perusahaan.nama_perusahaan && r.status === 'aktif')
+                                    const alreadyApplied = riwayatPenempatan.some(r => r.perusahaan?.nama_perusahaan === perusahaan.nama_perusahaan)
+                                    const isPending = riwayatPenempatan.some(r =>
+                                        r.perusahaan?.nama_perusahaan === perusahaan.nama_perusahaan &&
+                                        r.status === 'pending'
+                                    )
+                                    const isActive = riwayatPenempatan.some(r =>
+                                        r.perusahaan?.nama_perusahaan === perusahaan.nama_perusahaan &&
+                                        r.status === 'aktif'
+                                    )
 
                                     return (
                                         <Card key={perusahaan.id} className="hover:shadow-md transition-shadow">
@@ -376,8 +383,8 @@ export default function MagangPage() {
                                                     <Button disabled className="w-full bg-gray-200 text-gray-400 cursor-not-allowed">
                                                         Sedang Magang
                                                     </Button>
-                                                ) : alreadyApplied ? (
-                                                    <Button disabled variant="outline" className="w-full border-blue-200 text-blue-600">
+                                                ) : isPending ? (
+                                                    <Button disabled variant="outline" className="w-full border-yellow-200 text-yellow-600">
                                                         <Clock className="w-4 h-4 mr-2" />
                                                         Menunggu Konfirmasi
                                                     </Button>

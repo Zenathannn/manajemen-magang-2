@@ -25,6 +25,8 @@ export default function RegisterPage() {
     setFormData({ ...formData, [name]: value });
   };
 
+  // Di file register page.tsx, modifikasi handleSubmit:
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -38,10 +40,10 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true); // Optional: tambah loading state
+    setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
@@ -57,7 +59,26 @@ export default function RegisterPage() {
         return;
       }
 
+      // TAMBAHAN: Insert ke tabel profiles
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            email: formData.email,
+            full_name: formData.username,
+            role: 'siswa'
+          });
+
+        if (profileError) {
+          console.error("Error creating profile:", profileError);
+          alert("Registrasi berhasil tapi gagal membuat profil. Silakan hubungi admin.");
+          return;
+        }
+      }
+
       router.push("/auth/login");
+
     } catch (err) {
       console.error(err);
       alert("Terjadi kesalahan saat registrasi");

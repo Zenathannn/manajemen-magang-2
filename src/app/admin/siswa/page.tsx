@@ -18,23 +18,25 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Users, Search, Plus, Edit, Trash2, Mail, Phone, GraduationCap, Loader2, UserCircle } from "lucide-react"
+import { Users, Search, Edit, Trash2, Mail, Phone, GraduationCap, Loader2, UserCircle, AlertCircle } from "lucide-react"
+import { logActivity } from "@/lib/activity-logger"
 
+
+// Interface yang lebih fleksibel - handle kasus user belum lengkapi profil
 interface SiswaData {
-    id: string
-    nis: string
+    id: string  // profile_id
     profile_id: string
-    kelas: string
-    jurusan: string
-    tahun_ajaran: string
-    sekolah: string
+    nis: string | null
+    kelas: string | null
+    jurusan: string | null
+    tahun_ajaran: string | null
+    sekolah: string | null
     created_at: string
-    profiles: {
-        id: string
-        full_name: string
-        email: string
-        phone: string
-    }
+    full_name: string | null
+    email: string
+    phone: string | null
+    role: string
+    isProfileComplete: boolean  // Flag untuk cek apakah sudah lengkapi data siswa
     penempatan_magang: {
         id: string
         status: string
@@ -45,23 +47,20 @@ interface SiswaData {
 export default function ManajemenSiswa() {
     const supabase = createClient()
 
-    // State untuk data dan loading
     const [siswaList, setSiswaList] = useState<SiswaData[]>([])
     const [loading, setLoading] = useState(true)
-    const [fetching, setFetching] = useState(false) // Untuk reload data
+    const [fetching, setFetching] = useState(false)
 
-    // State untuk filter
     const [searchQuery, setSearchQuery] = useState("")
     const [filterStatus, setFilterStatus] = useState("semua")
     const [filterKelas, setFilterKelas] = useState("semua")
+    const [filterProfileComplete, setFilterProfileComplete] = useState("semua") // Filter baru
 
-    // State untuk modal
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [isEditing, setIsEditing] = useState(false)
     const [selectedSiswa, setSelectedSiswa] = useState<SiswaData | null>(null)
     const [saving, setSaving] = useState(false)
 
-    // Form state
     const [formData, setFormData] = useState({
         nis: "",
         full_name: "",
@@ -73,198 +72,233 @@ export default function ManajemenSiswa() {
         sekolah: "SMK Negeri 1 Surabaya"
     })
 
-    // FUNGSI FETCH YANG BENAR - Gunakan useCallback agar tidak recreate
     const fetchSiswa = useCallback(async () => {
         try {
-            setFetching(true)
-            console.log("Fetching data...") // Debug
+            setFetching(true);
 
-            let query = supabase
+            // STEP 1: Ambil semua profiles dengan role 'siswa'
+            const { data: profilesData, error: profilesError } = await supabase
+                .from("profiles")
+                .select("id, full_name, email, phone, role, created_at")
+                .eq("role", "siswa")
+                .order("created_at", { ascending: false });
+
+            if (profilesError) throw profilesError;
+
+            if (!profilesData || profilesData.length === 0) {
+                setSiswaList([]);
+                return;
+            }
+
+            // STEP 2: Ambil data siswa yang sudah lengkap (untuk cek status)
+            const profileIds = profilesData.map(p => p.id);
+            const { data: siswaData } = await supabase
                 .from("siswa")
-                .select(`
-                    *,
-                    profiles (id, full_name, email, phone),
-                    penempatan_magang (id, status, guru (nama))
-                `)
-                .order("created_at", { ascending: false })
+                .select("id, profile_id, nis, kelas, jurusan, tahun_ajaran, sekolah")
+                .in("profile_id", profileIds);
+
+            // STEP 3: Ambil penempatan_magang
+            const siswaIds = siswaData?.map(s => s.id) || [];
+            const { data: penempatanData } = await supabase
+                .from('penempatan_magang')
+                .select('id, siswa_id, status, guru(nama)')
+                .in('siswa_id', siswaIds);
+
+            // STEP 4: Gabungkan - SEMUA profile siswa muncul
+            const transformedData: SiswaData[] = profilesData.map((profile) => {
+                const siswa = siswaData?.find(s => s.profile_id === profile.id);
+                const penempatan = penempatanData?.filter(p => p.siswa_id === siswa?.id) || [];
+
+                return {
+                    id: siswa?.id || profile.id,
+                    profile_id: profile.id,
+                    nis: siswa?.nis || null,
+                    kelas: siswa?.kelas || null,
+                    jurusan: siswa?.jurusan || null,
+                    tahun_ajaran: siswa?.tahun_ajaran || null,
+                    sekolah: siswa?.sekolah || "SMK Negeri 1 Surabaya",
+                    created_at: profile.created_at,
+                    full_name: profile.full_name,
+                    email: profile.email,
+                    phone: profile.phone,
+                    role: profile.role,
+                    isProfileComplete: !!siswa?.nis, // false kalau belum ada di tabel siswa
+                    penempatan_magang: penempatan
+                };
+            });
+
+            // Filter logic tetap sama...
+            let filteredData = transformedData;
 
             if (searchQuery) {
-                query = query.or(`nis.ilike.%${searchQuery}%,profiles.full_name.ilike.%${searchQuery}%`)
+                const lowerQuery = searchQuery.toLowerCase();
+                filteredData = filteredData.filter(s =>
+                    s.full_name?.toLowerCase().includes(lowerQuery) ||
+                    s.nis?.toLowerCase().includes(lowerQuery) ||
+                    s.email?.toLowerCase().includes(lowerQuery)
+                );
             }
 
             if (filterKelas !== "semua") {
-                query = query.eq("kelas", filterKelas)
+                filteredData = filteredData.filter(s => s.kelas === filterKelas);
             }
 
-            const { data, error } = await query
-            if (error) {
-                console.error("Query error:", error)
-                throw error
-            }
-
-            console.log("Data fetched:", data?.length) // Debug
-
-            // Filter status di client side (karena relasi)
-            let filteredData = data || []
             if (filterStatus !== "semua") {
                 filteredData = filteredData.filter((siswa: SiswaData) => {
-                    const hasActive = siswa.penempatan_magang?.some(pm => pm.status === "aktif")
-                    const hasCompleted = siswa.penempatan_magang?.some(pm => pm.status === "selesai")
+                    if (filterStatus === "belum_lengkap") return !siswa.isProfileComplete;
 
-                    if (filterStatus === "magang") return hasActive
-                    if (filterStatus === "selesai") return hasCompleted && !hasActive
-                    if (filterStatus === "aktif") return !hasActive
-                    return true
-                })
+                    const hasActive = siswa.penempatan_magang?.some(pm => pm.status === "aktif");
+                    const hasPending = siswa.penempatan_magang?.some(pm => pm.status === "pending");
+                    const hasCompleted = siswa.penempatan_magang?.some(pm => pm.status === "selesai");
+
+                    if (filterStatus === "magang") return hasActive;
+                    if (filterStatus === "pending") return hasPending && !hasActive;
+                    if (filterStatus === "selesai") return hasCompleted && !hasActive;
+                    if (filterStatus === "aktif") return !hasActive && !hasPending;
+                    return true;
+                });
             }
 
-            // SET DATA - Pastikan ini mengganti seluruh array, bukan menimpa
-            setSiswaList(filteredData)
-        } catch (error) {
-            console.error("Error fetching:", error)
-            alert("Gagal memuat data siswa")
-        } finally {
-            setLoading(false)
-            setFetching(false)
-        }
-    }, [searchQuery, filterStatus, filterKelas, supabase])
+            setSiswaList(filteredData);
 
-    // Effect untuk fetch data - HANYA SAAT PARAMS BERUBAH
+        } catch (error) {
+            console.error("Error fetching:", error);
+            alert("Gagal memuat data siswa");
+        } finally {
+            setLoading(false);
+            setFetching(false);
+        }
+    }, [searchQuery, filterKelas, filterStatus, supabase]);
+
     useEffect(() => {
         fetchSiswa()
     }, [fetchSiswa])
 
-    // HANDLE SAVE YANG BENAR
+    // Handle save - sekarang bisa edit user yang belum lengkapi profil
     async function handleSave(e: React.FormEvent) {
-        e.preventDefault()
-        setSaving(true)
+        e.preventDefault();
+        setSaving(true);
 
         try {
-            if (isEditing && selectedSiswa) {
-                // Update existing
-                const { error: profileError } = await supabase
-                    .from("profiles")
-                    .update({
-                        full_name: formData.full_name,
-                        phone: formData.phone
-                    })
-                    .eq("id", selectedSiswa.profile_id)
+            if (!selectedSiswa) return;
 
-                if (profileError) throw profileError
+            // Update profile
+            const { error: profileError } = await supabase
+                .from("profiles")
+                .update({
+                    full_name: formData.full_name,
+                    phone: formData.phone
+                })
+                .eq("id", selectedSiswa.profile_id);
 
+            if (profileError) throw profileError;
+
+            // Cek apakah sudah ada di tabel siswa
+            const { data: existingSiswa } = await supabase
+                .from("siswa")
+                .select("id")
+                .eq("profile_id", selectedSiswa.profile_id)
+                .single();
+
+            if (existingSiswa) {
+                // UPDATE data yang sudah ada
                 const { error: siswaError } = await supabase
                     .from("siswa")
                     .update({
                         nis: formData.nis,
                         kelas: formData.kelas,
                         jurusan: formData.jurusan,
-                        tahun_ajaran: formData.tahun_ajaran
+                        tahun_ajaran: formData.tahun_ajaran,
+                        sekolah: formData.sekolah,
+                        nama: formData.full_name,
+                        telepon: formData.phone
                     })
-                    .eq("id", selectedSiswa.id)
+                    .eq("profile_id", selectedSiswa.profile_id);
 
-                if (siswaError) throw siswaError
-
-                alert("Data siswa berhasil diperbarui")
+                if (siswaError) throw siswaError;
             } else {
-                // Create new - LANGSUNG INSERT KE DB TANPA SET STATE MANUAL
-                const { data: authData, error: authError } = await supabase.auth.signUp({
-                    email: formData.email,
-                    password: "siswa123",
-                    options: {
-                        data: { full_name: formData.full_name, role: "siswa" }
-                    }
-                })
-
-                if (authError) {
-                    if (authError.message?.includes("already registered")) {
-                        // Ambil user yang sudah ada
-                        const { data: { user } } = await supabase.auth.getUser()
-                        if (!user) throw new Error("User sudah ada tapi tidak bisa diakses")
-
-                        await supabase.from("siswa").upsert({
-                            profile_id: user.id,
-                            nis: formData.nis,
-                            kelas: formData.kelas,
-                            jurusan: formData.jurusan,
-                            tahun_ajaran: formData.tahun_ajaran,
-                            sekolah: formData.sekolah,
-                            alamat: "",
-                            jenis_kelamin: "L"
-                        })
-                    } else {
-                        throw authError
-                    }
-                } else if (authData.user) {
-                    // Update profile dan insert siswa
-                    await supabase.from("profiles").update({
-                        full_name: formData.full_name,
-                        phone: formData.phone,
-                        role: "siswa"
-                    }).eq("id", authData.user.id)
-
-                    await supabase.from("siswa").insert({
-                        profile_id: authData.user.id,
+                // INSERT data baru (user yang baru register)
+                const { error: siswaError } = await supabase
+                    .from("siswa")
+                    .insert({
+                        profile_id: selectedSiswa.profile_id,
                         nis: formData.nis,
                         kelas: formData.kelas,
                         jurusan: formData.jurusan,
                         tahun_ajaran: formData.tahun_ajaran,
                         sekolah: formData.sekolah,
-                        alamat: "",
-                        jenis_kelamin: "L"
-                    })
-                }
+                        nama: formData.full_name,
+                        telepon: formData.phone,
+                        jenis_kelamin: "L", // default
+                        alamat: ""
+                    });
 
-                alert("Siswa berhasil ditambahkan")
+                if (siswaError) throw siswaError;
             }
 
-            // TUTUP MODAL DAN RESET
-            setIsModalOpen(false)
-            resetForm()
+            alert("Data siswa berhasil diperbarui");
+            setIsModalOpen(false);
+            resetForm();
+            await fetchSiswa();
 
-            // FETCH ULANG SEMUA DATA - Jangan set manual ke state
-            console.log("Fetching ulang setelah save...")
-            await fetchSiswa() // Ini akan fetch semua data termasuk yang baru
+            await logActivity(
+                'updated',
+                'siswa',
+                selectedSiswa.id,
+                `Admin mengubah data siswa ${formData.full_name} (NIS: ${formData.nis})`
+            );
 
         } catch (error: any) {
-            console.error("Error:", error)
-            alert(error.message || "Gagal menyimpan data")
+            console.error("Error:", error);
+            alert(error.message || "Gagal menyimpan data");
         } finally {
-            setSaving(false)
+            setSaving(false);
         }
     }
+    async function handleDelete(profileId: string) {
+        // Cari data siswa untuk log sebelum dihapus
+        const siswa = siswaList.find(s => s.profile_id === profileId)
+        const siswaName = siswa?.full_name || 'Unknown'
+        const siswaNis = siswa?.nis || '-'
 
-    async function handleDelete(id: string, profileId: string) {
-        if (!confirm("Yakin ingin menghapus siswa ini?")) return
+        if (!confirm("Yakin ingin menghapus siswa ini? Data auth juga akan dihapus.")) return
 
         try {
-            await supabase.from("siswa").delete().eq("id", id)
+            // Hapus dari tabel siswa dulu (kalau ada)
+            await supabase.from("siswa").delete().eq("profile_id", profileId)
+            // Hapus dari profiles
             await supabase.from("profiles").delete().eq("id", profileId)
+
             alert("Siswa berhasil dihapus")
-            await fetchSiswa() // Fetch ulang setelah hapus
+
+            // LOG ACTIVITY - DELETE SISWA
+            await logActivity(
+                'deleted',
+                'siswa',
+                profileId,
+                `Admin menghapus siswa ${siswaName} (NIS: ${siswaNis})`
+            )
+
+            await fetchSiswa()
         } catch (error) {
+            console.error("Delete error:", error)
             alert("Gagal menghapus siswa")
         }
     }
 
-    function openAddModal() {
-        setIsEditing(false)
-        setSelectedSiswa(null)
-        resetForm()
-        setIsModalOpen(true)
-    }
-
+    // Bisa edit user yang belum lengkapi profil untuk melengkapi data
     function openEditModal(siswa: SiswaData) {
         setIsEditing(true)
         setSelectedSiswa(siswa)
         setFormData({
-            nis: siswa.nis,
-            full_name: siswa.profiles?.full_name || "",
-            email: siswa.profiles?.email || "",
-            phone: siswa.profiles?.phone || "",
-            kelas: siswa.kelas,
-            jurusan: siswa.jurusan,
-            tahun_ajaran: siswa.tahun_ajaran,
-            sekolah: siswa.sekolah
+            nis: siswa.nis || "",
+            full_name: siswa.full_name || "",
+            email: siswa.email || "",
+            phone: siswa.phone || "",
+            kelas: siswa.kelas || "",
+            jurusan: siswa.jurusan || "",
+            tahun_ajaran: siswa.tahun_ajaran || new Date().getFullYear() + "/" + (new Date().getFullYear() + 1),
+            sekolah: siswa.sekolah || "SMK Negeri 1 Surabaya"
         })
         setIsModalOpen(true)
     }
@@ -277,27 +311,35 @@ export default function ManajemenSiswa() {
             phone: "",
             kelas: "",
             jurusan: "",
-            tahun_ajaran: "",
+            tahun_ajaran: new Date().getFullYear() + "/" + (new Date().getFullYear() + 1),
             sekolah: "SMK Negeri 1 Surabaya"
         })
     }
 
+    // Stats yang lebih lengkap
     const stats = {
         totalSiswa: siswaList.length,
+        profileLengkap: siswaList.filter(s => s.isProfileComplete).length,
+        profileBelumLengkap: siswaList.filter(s => !s.isProfileComplete).length,
         sedangMagang: siswaList.filter(s => s.penempatan_magang?.some(pm => pm.status === "aktif")).length,
         selesaiMagang: siswaList.filter(s =>
             s.penempatan_magang?.some(pm => pm.status === "selesai") &&
             !s.penempatan_magang?.some(pm => pm.status === "aktif")
         ).length,
-        belumPembimbing: siswaList.filter(s => !s.penempatan_magang || s.penempatan_magang.length === 0).length,
+        belumPembimbing: siswaList.filter(s => s.isProfileComplete && (!s.penempatan_magang || s.penempatan_magang.length === 0)).length,
     }
 
     const getStatusBadge = (siswa: SiswaData) => {
         const hasActive = siswa.penempatan_magang?.some(pm => pm.status === "aktif")
-        const hasCompleted = siswa.penempatan_magang?.some(pm => pm.status === "selesai")
-        if (hasActive) return <Badge className="bg-blue-100 text-blue-700">magang</Badge>
-        if (hasCompleted) return <Badge className="bg-green-100 text-green-700">selesai</Badge>
-        return <Badge variant="secondary">aktif</Badge>
+        const hasPending = siswa.penempatan_magang?.some(pm => pm.status === "pending")
+
+        if (hasActive) {
+            return <Badge className="bg-blue-100 text-blue-800">Magang</Badge>
+        }
+        if (hasPending) {
+            return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+        }
+        return <Badge variant="secondary">Aktif</Badge>
     }
 
     if (loading) return <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-cyan-500" /></div>
@@ -306,53 +348,79 @@ export default function ManajemenSiswa() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-gray-800">Manajemen Siswa</h1>
-                <p className="text-sm text-gray-500 mt-1">Kelola data siswa dan penugasan magang</p>
+                <p className="text-sm text-gray-500 mt-1">Kelola data siswa, termasuk yang belum melengkapi profil</p>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Stats yang diperbarui */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <Card className="border-0 shadow-sm">
-                    <CardContent className="p-6">
+                    <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-sm text-gray-500 mb-1">Total Siswa</p>
-                                <h3 className="text-3xl font-bold text-gray-800">{stats.totalSiswa}</h3>
+                                <p className="text-xs text-gray-500 mb-1">Total Siswa</p>
+                                <h3 className="text-2xl font-bold text-gray-800">{stats.totalSiswa}</h3>
                             </div>
-                            <div className="p-3 bg-gray-100 rounded-xl"><Users className="h-6 w-6 text-gray-600" /></div>
+                            <div className="p-2 bg-gray-100 rounded-lg"><Users className="h-4 w-4 text-gray-600" /></div>
                         </div>
                     </CardContent>
                 </Card>
-                {/* ... stats lainnya sama */}
+
                 <Card className="border-0 shadow-sm">
-                    <CardContent className="p-6">
+                    <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-sm text-gray-500 mb-1">Sedang Magang</p>
-                                <h3 className="text-3xl font-bold text-blue-600">{stats.sedangMagang}</h3>
+                                <p className="text-xs text-gray-500 mb-1">Profil Lengkap</p>
+                                <h3 className="text-2xl font-bold text-green-600">{stats.profileLengkap}</h3>
                             </div>
-                            <div className="p-3 bg-blue-50 rounded-xl"><GraduationCap className="h-6 w-6 text-blue-500" /></div>
+                            <div className="p-2 bg-green-50 rounded-lg"><UserCircle className="h-4 w-4 text-green-500" /></div>
                         </div>
                     </CardContent>
                 </Card>
+
                 <Card className="border-0 shadow-sm">
-                    <CardContent className="p-6">
+                    <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-sm text-gray-500 mb-1">Selesai</p>
-                                <h3 className="text-3xl font-bold text-green-600">{stats.selesaiMagang}</h3>
+                                <p className="text-xs text-gray-500 mb-1">Belum Lengkap</p>
+                                <h3 className="text-2xl font-bold text-orange-600">{stats.profileBelumLengkap}</h3>
                             </div>
-                            <div className="p-3 bg-green-50 rounded-xl"><UserCircle className="h-6 w-6 text-green-500" /></div>
+                            <div className="p-2 bg-orange-50 rounded-lg"><AlertCircle className="h-4 w-4 text-orange-500" /></div>
                         </div>
                     </CardContent>
                 </Card>
+
                 <Card className="border-0 shadow-sm">
-                    <CardContent className="p-6">
+                    <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-sm text-gray-500 mb-1">Belum Pembimbing</p>
-                                <h3 className="text-3xl font-bold text-orange-600">{stats.belumPembimbing}</h3>
+                                <p className="text-xs text-gray-500 mb-1">Sedang Magang</p>
+                                <h3 className="text-2xl font-bold text-blue-600">{stats.sedangMagang}</h3>
                             </div>
-                            <div className="p-3 bg-orange-50 rounded-xl"><Users className="h-6 w-6 text-orange-500" /></div>
+                            <div className="p-2 bg-blue-50 rounded-lg"><GraduationCap className="h-4 w-4 text-blue-500" /></div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-xs text-gray-500 mb-1">Selesai</p>
+                                <h3 className="text-2xl font-bold text-green-600">{stats.selesaiMagang}</h3>
+                            </div>
+                            <div className="p-2 bg-green-50 rounded-lg"><UserCircle className="h-4 w-4 text-green-500" /></div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-xs text-gray-500 mb-1">Belum Pembimbing</p>
+                                <h3 className="text-2xl font-bold text-purple-600">{stats.belumPembimbing}</h3>
+                            </div>
+                            <div className="p-2 bg-purple-50 rounded-lg"><Users className="h-4 w-4 text-purple-500" /></div>
                         </div>
                     </CardContent>
                 </Card>
@@ -366,19 +434,15 @@ export default function ManajemenSiswa() {
                             <Users className="h-5 w-5 text-cyan-500" />
                             Data Siswa {fetching && <Loader2 className="w-4 h-4 animate-spin text-cyan-500 ml-2" />}
                         </CardTitle>
-                        <Button className="bg-cyan-600 hover:bg-cyan-700" onClick={openAddModal}>
-                            <Plus className="w-4 h-4 mr-2" />
-                            Tambah Siswa
-                        </Button>
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {/* Filter */}
+                    {/* Filter yang diperbarui */}
                     <div className="flex flex-col sm:flex-row gap-4">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                             <Input
-                                placeholder="Cari siswa..."
+                                placeholder="Cari nama, email, atau NIS..."
                                 className="pl-9 border-gray-200"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -390,8 +454,9 @@ export default function ManajemenSiswa() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="semua">Semua Status</SelectItem>
-                                <SelectItem value="aktif">Aktif</SelectItem>
-                                <SelectItem value="magang">Magang</SelectItem>
+                                <SelectItem value="belum_lengkap">Belum Lengkapi Profil</SelectItem>
+                                <SelectItem value="aktif">Aktif (Belum Magang)</SelectItem>
+                                <SelectItem value="magang">Sedang Magang</SelectItem>
                                 <SelectItem value="selesai">Selesai</SelectItem>
                             </SelectContent>
                         </Select>
@@ -413,50 +478,77 @@ export default function ManajemenSiswa() {
                         <Table>
                             <TableHeader className="bg-gray-50">
                                 <TableRow>
-                                    <TableHead>NIS</TableHead>
+                                    <TableHead>Status</TableHead>
                                     <TableHead>Nama</TableHead>
+                                    <TableHead>NIS</TableHead>
                                     <TableHead>Kelas/Jurusan</TableHead>
                                     <TableHead>Kontak</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>Magang</TableHead>
                                     <TableHead className="text-right">Aksi</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {siswaList.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8 text-gray-400">
+                                        <TableCell colSpan={7} className="text-center py-8 text-gray-400">
                                             Tidak ada data siswa
                                         </TableCell>
                                     </TableRow>
                                 ) : (
                                     siswaList.map((siswa, index) => (
-                                        <TableRow key={`${siswa.id}-${index}`} className="hover:bg-gray-50">
-                                            <TableCell className="font-medium">{siswa.nis}</TableCell>
+                                        <TableRow
+                                            key={`${siswa.id}-${index}`}
+                                            className={`hover:bg-gray-50 ${!siswa.isProfileComplete ? 'bg-orange-50/30' : ''}`}
+                                        >
+                                            <TableCell>{getStatusBadge(siswa)}</TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-cyan-100 flex items-center justify-center text-xs font-bold text-cyan-700">
-                                                        {siswa.profiles?.full_name?.charAt(0) || 'S'}
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${siswa.isProfileComplete ? 'bg-cyan-100 text-cyan-700' : 'bg-orange-100 text-orange-700'
+                                                        }`}>
+                                                        {siswa.full_name?.charAt(0) || 'S'}
                                                     </div>
-                                                    <span className="font-medium">{siswa.profiles?.full_name}</span>
+                                                    <div>
+                                                        <span className="font-medium block">{siswa.full_name || 'Belum ada nama'}</span>
+                                                        {!siswa.isProfileComplete && (
+                                                            <span className="text-xs text-orange-600">Perlu melengkapi data</span>
+                                                        )}
+                                                    </div>
                                                 </div>
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                                {siswa.nis || '-'}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-col">
-                                                    <span className="font-medium">{siswa.kelas}</span>
-                                                    <span className="text-xs text-gray-500">{siswa.jurusan}</span>
+                                                    <span className="font-medium">{siswa.kelas || '-'}</span>
+                                                    <span className="text-xs text-gray-500">{siswa.jurusan || '-'}</span>
                                                 </div>
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-col gap-0.5 text-sm">
                                                     <span className="flex items-center gap-1 text-gray-600">
-                                                        <Mail className="w-3 h-3" /> {siswa.profiles?.email}
+                                                        <Mail className="w-3 h-3" /> {siswa.email}
                                                     </span>
                                                     <span className="flex items-center gap-1 text-gray-500">
-                                                        <Phone className="w-3 h-3" /> {siswa.profiles?.phone || '-'}
+                                                        <Phone className="w-3 h-3" /> {siswa.phone || '-'}
                                                     </span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell>{getStatusBadge(siswa)}</TableCell>
+                                            <TableCell>
+                                                {siswa.penempatan_magang && siswa.penempatan_magang.length > 0 ? (
+                                                    <div className="text-sm">
+                                                        <span className="font-medium">
+                                                            {siswa.penempatan_magang.find(pm => pm.status === 'aktif')?.guru?.nama ||
+                                                                siswa.penempatan_magang[0]?.guru?.nama || '-'}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500 block">
+                                                            {siswa.penempatan_magang.length} penempatan
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-sm text-gray-400">Belum ada</span>
+                                                )}
+                                            </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-1">
                                                     <Button
@@ -464,6 +556,7 @@ export default function ManajemenSiswa() {
                                                         size="icon"
                                                         className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                                         onClick={() => openEditModal(siswa)}
+                                                        title={siswa.isProfileComplete ? "Edit" : "Lengkapi Data"}
                                                     >
                                                         <Edit className="h-4 w-4" />
                                                     </Button>
@@ -471,7 +564,7 @@ export default function ManajemenSiswa() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                                        onClick={() => handleDelete(siswa.id, siswa.profile_id)}
+                                                        onClick={() => handleDelete(siswa.profile_id)}
                                                     >
                                                         <Trash2 className="h-4 w-4" />
                                                     </Button>
@@ -486,17 +579,26 @@ export default function ManajemenSiswa() {
 
                     <div className="text-sm text-gray-500 text-center">
                         Menampilkan {siswaList.length} data siswa
+                        {stats.profileBelumLengkap > 0 && (
+                            <span className="text-orange-600 ml-2">
+                                ({stats.profileBelumLengkap} belum lengkapi profil)
+                            </span>
+                        )}
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Modal */}
+            {/* Modal - sama seperti sebelumnya tapi bisa handle edit user yang belum lengkapi */}
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent className="sm:max-w-[600px]">
                     <DialogHeader>
-                        <DialogTitle>{isEditing ? 'Edit Data Siswa' : 'Tambah Siswa Baru'}</DialogTitle>
+                        <DialogTitle>
+                            {selectedSiswa?.isProfileComplete ? 'Edit Data Siswa' : 'Lengkapi Data Siswa'}
+                        </DialogTitle>
                         <DialogDescription>
-                            {isEditing ? 'Perbarui informasi siswa di bawah ini' : 'Isi data lengkap siswa baru'}
+                            {selectedSiswa?.isProfileComplete
+                                ? 'Perbarui informasi siswa di bawah ini'
+                                : 'Siswa ini belum melengkapi data NIS dan kelas. Silakan lengkapi di bawah ini.'}
                         </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleSave}>
@@ -509,6 +611,7 @@ export default function ManajemenSiswa() {
                                         value={formData.nis}
                                         onChange={(e) => setFormData({ ...formData, nis: e.target.value })}
                                         required
+                                        placeholder={!selectedSiswa?.isProfileComplete ? "Wajib diisi" : ""}
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -516,6 +619,7 @@ export default function ManajemenSiswa() {
                                     <Select
                                         value={formData.kelas}
                                         onValueChange={(v) => setFormData({ ...formData, kelas: v })}
+                                        required
                                     >
                                         <SelectTrigger>
                                             <SelectValue placeholder="Pilih Kelas" />

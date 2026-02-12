@@ -13,13 +13,8 @@ import {
     Calendar,
     Phone,
     MapPin,
-    ArrowUpRight,
-    Clock,
-    CheckCircle2,
-    XCircle,
     Loader2
 } from "lucide-react"
-import Link from "next/link"
 
 interface DashboardStats {
     totalSiswa: number
@@ -99,22 +94,68 @@ export default function AdminDashboard() {
                     logbookHariIni: logbookHariIni || 0
                 })
 
-                // 5. Magang Terbaru (2 item)
-                const { data: magangData } = await supabase
+                // 5. Magang Terbaru (2 item) - PERBAIKAN: Ambil nama dari profiles via siswa
+                const { data: magangData, error: magangError } = await supabase
                     .from('penempatan_magang')
                     .select(`
                         id,
                         tanggal_mulai,
                         tanggal_selesai,
                         status,
-                        siswa:siswa_id (full_name),
-                        perusahaan:perusahaan_id (nama_perusahaan)
+                        created_at,
+                        siswa_id,
+                        perusahaan_id
                     `)
                     .order('created_at', { ascending: false })
                     .limit(2)
 
-                if (magangData) {
-                    setMagangTerbaru(magangData as any)
+                if (magangError) {
+                    console.error("Error fetching magang:", magangError)
+                }
+
+                if (magangData && magangData.length > 0) {
+                    // Ambil data siswa dan profile_id
+                    const siswaIds = magangData.map(m => m.siswa_id).filter(Boolean)
+
+                    const { data: siswaData } = await supabase
+                        .from('siswa')
+                        .select('id, profile_id')
+                        .in('id', siswaIds)
+
+                    // Ambil nama dari profiles
+                    const profileIds = siswaData?.map(s => s.profile_id).filter(Boolean) || []
+                    const { data: profilesData } = await supabase
+                        .from('profiles')
+                        .select('id, full_name')
+                        .in('id', profileIds)
+
+                    // Ambil nama perusahaan
+                    const perusahaanIds = magangData.map(m => m.perusahaan_id).filter(Boolean)
+                    const { data: perusahaanData } = await supabase
+                        .from('perusahaan')
+                        .select('id, nama_perusahaan')
+                        .in('id', perusahaanIds)
+
+                    // Buat mapping
+                    const siswaToProfile = new Map(siswaData?.map(s => [s.id, s.profile_id]) || [])
+                    const profileMap = new Map(profilesData?.map(p => [p.id, p.full_name]) || [])
+                    const perusahaanMap = new Map(perusahaanData?.map(p => [p.id, p.nama_perusahaan]) || [])
+
+                    const transformedMagang: MagangTerbaru[] = magangData.map(m => {
+                        const profileId = siswaToProfile.get(m.siswa_id)
+                        const fullName = profileMap.get(profileId) || 'Unknown'
+
+                        return {
+                            id: m.id,
+                            siswa: { full_name: fullName },
+                            perusahaan: { nama_perusahaan: perusahaanMap.get(m.perusahaan_id) || 'Unknown' },
+                            tanggal_mulai: m.tanggal_mulai,
+                            tanggal_selesai: m.tanggal_selesai,
+                            status: m.status
+                        }
+                    })
+
+                    setMagangTerbaru(transformedMagang)
                 }
 
                 // 6. DUDI Aktif dengan jumlah siswa
@@ -125,7 +166,6 @@ export default function AdminDashboard() {
                     .limit(3)
 
                 if (dudiData) {
-                    // Hitung jumlah siswa per dudi
                     const dudiWithCount = await Promise.all(
                         dudiData.map(async (dudi) => {
                             const { count } = await supabase
@@ -139,21 +179,56 @@ export default function AdminDashboard() {
                     setDudiAktif(dudiWithCount)
                 }
 
-                // 7. Logbook Terbaru (3 item)
-                const { data: logbookData } = await supabase
+                // 7. Logbook Terbaru (3 item) - PERBAIKAN: Ambil nama dari profiles via siswa
+                const { data: logbookData, error: logbookError } = await supabase
                     .from('jurnal_harian')
                     .select(`
                         id,
                         kegiatan,
                         tanggal,
                         status_validasi,
-                        siswa:siswa_id (full_name)
+                        siswa_id
                     `)
                     .order('tanggal', { ascending: false })
                     .limit(3)
 
-                if (logbookData) {
-                    setLogbookTerbaru(logbookData as any)
+                if (logbookError) {
+                    console.error("Error fetching logbook:", logbookError)
+                }
+
+                if (logbookData && logbookData.length > 0) {
+                    // Ambil profile_id dari siswa
+                    const siswaIds = logbookData.map(j => j.siswa_id).filter(Boolean)
+                    const { data: siswaData } = await supabase
+                        .from('siswa')
+                        .select('id, profile_id')
+                        .in('id', siswaIds)
+
+                    // Ambil nama dari profiles
+                    const profileIds = siswaData?.map(s => s.profile_id).filter(Boolean) || []
+                    const { data: profilesData } = await supabase
+                        .from('profiles')
+                        .select('id, full_name')
+                        .in('id', profileIds)
+
+                    // Buat mapping
+                    const siswaToProfile = new Map(siswaData?.map(s => [s.id, s.profile_id]) || [])
+                    const profileMap = new Map(profilesData?.map(p => [p.id, p.full_name]) || [])
+
+                    const transformedLogbook: LogbookTerbaru[] = logbookData.map(j => {
+                        const profileId = siswaToProfile.get(j.siswa_id)
+                        const fullName = profileMap.get(profileId) || 'Unknown'
+
+                        return {
+                            id: j.id,
+                            kegiatan: j.kegiatan,
+                            tanggal: j.tanggal,
+                            status_validasi: j.status_validasi,
+                            siswa: { full_name: fullName }
+                        }
+                    })
+
+                    setLogbookTerbaru(transformedLogbook)
                 }
 
             } catch (error) {
@@ -167,6 +242,7 @@ export default function AdminDashboard() {
     }, [])
 
     const formatDate = (date: string) => {
+        if (!date) return '-'
         return new Date(date).toLocaleDateString('id-ID', {
             day: 'numeric',
             month: 'long',
@@ -372,8 +448,8 @@ export default function AdminDashboard() {
                                             <Calendar className="h-3 w-3" />
                                             {formatDate(logbook.tanggal)}
                                         </span>
-                                        <span className="text-xs text-orange-500">
-                                            Kendala: <span className="italic">Tidak ada kendala berarti</span>
+                                        <span className="text-xs text-gray-600">
+                                            Oleh: {logbook.siswa?.full_name || 'Unknown'}
                                         </span>
                                     </div>
                                 </div>
@@ -382,7 +458,7 @@ export default function AdminDashboard() {
                                         <Badge className="bg-green-100 text-green-700">Disetujui</Badge>
                                     )}
                                     {logbook.status_validasi === 'menunggu' && (
-                                        <Badge className="bg-yellow-100 text-yellow-700">pending</Badge>
+                                        <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>
                                     )}
                                     {logbook.status_validasi === 'ditolak' && (
                                         <Badge className="bg-red-100 text-red-700">Ditolak</Badge>

@@ -27,9 +27,12 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import {
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import {
     Users,
     Search,
-    Plus,
     Edit,
     Trash2,
     Mail,
@@ -38,7 +41,7 @@ import {
     GraduationCap,
     User
 } from "lucide-react"
-import Link from "next/link"
+import { logActivity } from "@/lib/activity-logger"
 
 interface UserData {
     id: string
@@ -56,6 +59,17 @@ export default function ManajemenUser() {
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [filterRole, setFilterRole] = useState("semua")
+
+    // State untuk modal edit (tambah dihapus)
+    const [isModalOpen, setIsModalOpen] = useState(false)
+    const [selectedUser, setSelectedUser] = useState<UserData | null>(null)
+    const [saving, setSaving] = useState(false)
+
+    const [formData, setFormData] = useState({
+        full_name: '',
+        role: 'siswa' as 'admin' | 'guru' | 'siswa',
+        phone: ''
+    })
 
     useEffect(() => {
         async function fetchUsers() {
@@ -140,20 +154,86 @@ export default function ManajemenUser() {
     }
 
     const handleDelete = async (id: string) => {
+        // Cari data user untuk log
+        const user = userList.find(u => u.id === id)
+        const userName = user?.full_name || user?.email || 'Unknown'
+        const userRole = user?.role || 'unknown'
+
         if (!confirm("Yakin ingin menghapus user ini?")) return
 
         try {
-            // Hapus dari profiles terlebih dahulu
             const { error } = await supabase
                 .from("profiles")
                 .delete()
                 .eq("id", id)
 
             if (error) throw error
+
+            // LOG ACTIVITY - DELETE USER
+            await logActivity(
+                'deleted',
+                'user',
+                id,
+                `Admin menghapus user ${userName} (Role: ${userRole})`
+            )
+
             setUserList(prev => prev.filter(u => u.id !== id))
         } catch (error) {
             console.error("Error deleting user:", error)
             alert("Gagal menghapus user")
+        }
+    }
+
+    // Buka modal edit (tambah dihapus)
+    function openEditModal(user: UserData) {
+        setSelectedUser(user)
+        setFormData({
+            full_name: user.full_name,
+            role: user.role,
+            phone: user.phone || ''
+        })
+        setIsModalOpen(true)
+    }
+
+    // Tutup modal
+    function closeModal() {
+        setIsModalOpen(false)
+        setSelectedUser(null)
+    }
+
+    // Simpan perubahan edit
+    async function handleSave(e: React.FormEvent) {
+        e.preventDefault()
+        if (!selectedUser) return
+
+        setSaving(true)
+        try {
+            const { error } = await supabase
+                .from("profiles")
+                .update({
+                    full_name: formData.full_name,
+                    role: formData.role,
+                    phone: formData.phone
+                })
+                .eq("id", selectedUser.id)
+
+            if (error) throw error
+
+            // LOG ACTIVITY - UPDATE USER
+            await logActivity(
+                'updated',
+                'user',
+                selectedUser.id,
+                `Admin mengubah data user ${formData.full_name} (Role: ${formData.role})`
+            )
+
+            alert("Data user berhasil diperbarui")
+            closeModal()
+            window.location.reload()
+        } catch (err: any) {
+            alert("Gagal menyimpan: " + err.message)
+        } finally {
+            setSaving(false)
         }
     }
 
@@ -181,12 +261,7 @@ export default function ManajemenUser() {
                             <Users className="h-5 w-5 text-cyan-500" />
                             Daftar User
                         </CardTitle>
-                        <Link href="/admin/users/tambah">
-                            <Button className="bg-cyan-600 hover:bg-cyan-700">
-                                <Plus className="w-4 h-4 mr-2" />
-                                Tambah User
-                            </Button>
-                        </Link>
+                        {/* TOMBOL TAMBAH DIHAPUS - User daftar mandiri */}
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -293,11 +368,14 @@ export default function ManajemenUser() {
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
-                                                    <Link href={`/admin/users/edit/${user.id}`}>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                                                            <Edit className="h-4 w-4" />
-                                                        </Button>
-                                                    </Link>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                        onClick={() => openEditModal(user)}
+                                                    >
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -327,6 +405,84 @@ export default function ManajemenUser() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Modal Edit User (Tambah dihapus) */}
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Edit Data User</DialogTitle>
+                        <DialogDescription>
+                            Perbarui informasi user di bawah ini
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleSave}>
+                        <div className="grid gap-4 py-4">
+                            {/* Email (read only) */}
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email</Label>
+                                <Input
+                                    id="email"
+                                    type="email"
+                                    value={selectedUser?.email || ''}
+                                    disabled
+                                    className="bg-gray-100"
+                                />
+                                <p className="text-xs text-gray-500">Email tidak dapat diubah</p>
+                            </div>
+
+                            {/* Nama Lengkap */}
+                            <div className="space-y-2">
+                                <Label htmlFor="full_name">Nama Lengkap *</Label>
+                                <Input
+                                    id="full_name"
+                                    value={formData.full_name}
+                                    onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                                    placeholder="Nama lengkap user"
+                                    required
+                                />
+                            </div>
+
+                            {/* Role */}
+                            <div className="space-y-2">
+                                <Label htmlFor="role">Role *</Label>
+                                <Select
+                                    value={formData.role}
+                                    onValueChange={(v: any) => setFormData({ ...formData, role: v })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="admin">Admin</SelectItem>
+                                        <SelectItem value="guru">Guru</SelectItem>
+                                        <SelectItem value="siswa">Siswa</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Telepon */}
+                            <div className="space-y-2">
+                                <Label htmlFor="phone">No. Telepon</Label>
+                                <Input
+                                    id="phone"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    placeholder="0812-3456-7890"
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={closeModal}>
+                                Batal
+                            </Button>
+                            <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700" disabled={saving}>
+                                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                                {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

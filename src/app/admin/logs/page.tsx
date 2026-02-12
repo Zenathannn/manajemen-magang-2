@@ -28,10 +28,12 @@ import {
     Plus,
     Edit3,
     Trash,
-    Clock
+    Clock,
+    RotateCcw
 } from "lucide-react"
 import { format } from "date-fns"
 import { id } from "date-fns/locale"
+import { toast } from "sonner"
 
 interface ActivityLog {
     id: string
@@ -41,6 +43,7 @@ interface ActivityLog {
     entity_id: string
     description: string
     created_at: string
+    deleted_at: string | null
     user: {
         full_name: string
         email: string
@@ -51,27 +54,33 @@ export default function ActivityLogs() {
     const supabase = createClient()
     const [logs, setLogs] = useState<ActivityLog[]>([])
     const [loading, setLoading] = useState(true)
+    const [clearing, setClearing] = useState(false)
     const [searchQuery, setSearchQuery] = useState("")
     const [filterAction, setFilterAction] = useState("all")
     const [filterEntity, setFilterEntity] = useState("all")
+    const [showDeleted, setShowDeleted] = useState(false)
 
     useEffect(() => {
         fetchLogs()
-    }, [searchQuery, filterAction, filterEntity])
+    }, [searchQuery, filterAction, filterEntity, showDeleted])
 
     async function fetchLogs() {
         try {
             setLoading(true)
 
-            // Query ke tabel activity_logs
+            // PERBAIKAN: Query tanpa join dulu, ambil user terpisah
             let query = supabase
                 .from("activity_logs")
-                .select(`
-                    *,
-                    user:user_id (full_name, email)
-                `)
+                .select("*")
                 .order("created_at", { ascending: false })
                 .limit(50)
+
+            // Filter soft delete
+            if (showDeleted) {
+                query = query.not("deleted_at", "is", null)
+            } else {
+                query = query.is("deleted_at", null)
+            }
 
             if (filterAction !== "all") {
                 query = query.eq("action", filterAction)
@@ -81,21 +90,53 @@ export default function ActivityLogs() {
                 query = query.eq("entity_type", filterEntity)
             }
 
-            if (searchQuery) {
-                query = query.or(`
-                    description.ilike.%${searchQuery}%,
-                    user.full_name.ilike.%${searchQuery}%
-                `)
-            }
-
-            const { data, error } = await query
+            const { data: logsData, error } = await query
 
             if (error) {
                 console.log("Activity logs table might not exist yet")
                 setLogs([])
-            } else {
-                setLogs(data || [])
+                setLoading(false)
+                return
             }
+
+            if (!logsData || logsData.length === 0) {
+                setLogs([])
+                setLoading(false)
+                return
+            }
+
+            // PERBAIKAN: Ambil user_id unik dan query profiles terpisah
+            const userIds = [...new Set(logsData.map(log => log.user_id).filter(Boolean))]
+
+            let profilesMap = new Map()
+            if (userIds.length > 0) {
+                const { data: profilesData } = await supabase
+                    .from("profiles")
+                    .select("id, full_name, email")
+                    .in("id", userIds)
+
+                profilesMap = new Map(
+                    profilesData?.map(p => [p.id, { full_name: p.full_name, email: p.email }]) || []
+                )
+            }
+
+            // PERBAIKAN: Gabungkan data logs dengan profiles
+            let transformedLogs = logsData.map(log => ({
+                ...log,
+                user: profilesMap.get(log.user_id) || { full_name: "Unknown User", email: "-" }
+            }))
+
+            // Filter search query di client side karena sudah ambil semua data
+            if (searchQuery) {
+                const lowerQuery = searchQuery.toLowerCase()
+                transformedLogs = transformedLogs.filter(log =>
+                    log.description?.toLowerCase().includes(lowerQuery) ||
+                    log.user?.full_name?.toLowerCase().includes(lowerQuery)
+                )
+            }
+
+            setLogs(transformedLogs)
+
         } catch (error) {
             console.error("Error fetching logs:", error)
             setLogs([])
@@ -104,20 +145,76 @@ export default function ActivityLogs() {
         }
     }
 
+    // Soft delete - tandai logs sebagai dihapus tanpa menghapus dari database
     async function clearLogs() {
-        if (!confirm("Yakin ingin menghapus semua activity logs?")) return
+        if (!confirm("Yakin ingin menghapus semua activity logs? Logs yang dihapus bisa dipulihkan nanti.")) return
 
         try {
+            setClearing(true)
+
+            const { error } = await supabase
+                .from("activity_logs")
+                .update({ deleted_at: new Date().toISOString() })
+                .is("deleted_at", null)
+
+            if (error) throw error
+
+            await fetchLogs()
+            toast.success("Semua logs berhasil dihapus (soft delete)")
+        } catch (error: any) {
+            console.error("Error clearing logs:", error)
+            toast.error("Gagal menghapus logs: " + error.message)
+        } finally {
+            setClearing(false)
+        }
+    }
+
+    // Restore logs yang sudah dihapus
+    async function restoreLogs() {
+        if (!confirm("Pulihkan semua logs yang dihapus?")) return
+
+        try {
+            setClearing(true)
+
+            const { error } = await supabase
+                .from("activity_logs")
+                .update({ deleted_at: null })
+                .not("deleted_at", "is", null)
+
+            if (error) throw error
+
+            setShowDeleted(false)
+            await fetchLogs()
+            toast.success("Semua logs berhasil dipulihkan")
+        } catch (error: any) {
+            console.error("Error restoring logs:", error)
+            toast.error("Gagal memulihkan logs: " + error.message)
+        } finally {
+            setClearing(false)
+        }
+    }
+
+    // Hard delete permanen
+    async function permanentDelete() {
+        if (!confirm("PERINGATAN: Ini akan menghapus logs PERMANEN dari database. Lanjutkan?")) return
+        if (!confirm("Yakin benar? Data tidak bisa dikembalikan!")) return
+
+        try {
+            setClearing(true)
+
             const { error } = await supabase
                 .from("activity_logs")
                 .delete()
-                .neq("id", "00000000-0000-0000-0000-000000000000")
+                .not("deleted_at", "is", null)
 
             if (error) throw error
-            setLogs([])
-        } catch (error) {
-            console.error("Error clearing logs:", error)
-            alert("Gagal menghapus logs")
+
+            await fetchLogs()
+            toast.success("Logs dihapus permanen")
+        } catch (error: any) {
+            toast.error("Gagal menghapus: " + error.message)
+        } finally {
+            setClearing(false)
         }
     }
 
@@ -166,15 +263,57 @@ export default function ActivityLogs() {
                     <h1 className="text-2xl font-bold text-gray-800">Activity Logs</h1>
                     <p className="text-sm text-gray-500 mt-1">Riwayat aktivitas admin di sistem</p>
                 </div>
-                <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={clearLogs}
-                    className="bg-red-600 hover:bg-red-700"
-                >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Clear Logs
-                </Button>
+                <div className="flex gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowDeleted(!showDeleted)}
+                    >
+                        {showDeleted ? (
+                            <>
+                                <History className="w-4 h-4 mr-2" />
+                                Tampilkan Aktif
+                            </>
+                        ) : (
+                            <>
+                                <Trash className="w-4 h-4 mr-2" />
+                                Tampilkan Dihapus
+                            </>
+                        )}
+                    </Button>
+
+                    {showDeleted ? (
+                        <Button
+                            variant="default"
+                            size="sm"
+                            onClick={restoreLogs}
+                            disabled={clearing || logs.length === 0}
+                            className="bg-green-600 hover:bg-green-700"
+                        >
+                            {clearing ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <RotateCcw className="w-4 h-4 mr-2" />
+                            )}
+                            Pulihkan Semua
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={clearLogs}
+                            disabled={clearing || logs.length === 0}
+                            className="bg-red-600 hover:bg-red-700"
+                        >
+                            {clearing ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Trash2 className="w-4 h-4 mr-2" />
+                            )}
+                            Clear Logs
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* Stats Grid */}
@@ -277,9 +416,20 @@ export default function ActivityLogs() {
                                 <SelectItem value="perusahaan">DUDI</SelectItem>
                                 <SelectItem value="penempatan_magang">Magang</SelectItem>
                                 <SelectItem value="users">Users</SelectItem>
+                                <SelectItem value="settings">Settings</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {showDeleted && (
+                        <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <Trash className="w-4 h-4 text-yellow-600" />
+                            <span className="text-sm text-yellow-800">
+                                Menampilkan logs yang sudah dihapus (soft delete).
+                                Logs bisa dipulihkan kembali.
+                            </span>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -293,7 +443,25 @@ export default function ActivityLogs() {
                             <Badge variant="secondary" className="bg-gray-100 text-gray-600">
                                 {logs.length} logs
                             </Badge>
+                            {showDeleted && (
+                                <Badge variant="destructive" className="bg-red-100 text-red-700 border-red-200">
+                                    Dihapus
+                                </Badge>
+                            )}
                         </div>
+
+                        {showDeleted && logs.length > 0 && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={permanentDelete}
+                                disabled={clearing}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Hapus Permanen
+                            </Button>
+                        )}
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -305,12 +473,22 @@ export default function ActivityLogs() {
                         <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                             <Clock className="w-12 h-12 mb-3 opacity-50" />
                             <p>Tidak ada activity logs</p>
-                            <p className="text-sm opacity-75">Aktivitas sistem akan tercatat di sini</p>
+                            <p className="text-sm opacity-75">
+                                {showDeleted
+                                    ? "Tidak ada logs yang dihapus"
+                                    : "Aktivitas sistem akan tercatat di sini"}
+                            </p>
                         </div>
                     ) : (
                         <div className="space-y-4">
                             {logs.map((log) => (
-                                <div key={log.id} className="flex gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
+                                <div
+                                    key={log.id}
+                                    className={`flex gap-4 p-4 rounded-xl border transition-colors ${showDeleted
+                                        ? "border-red-200 bg-red-50/30 opacity-75"
+                                        : "border-gray-100 hover:bg-gray-50"
+                                        }`}
+                                >
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border ${getActionColor(log.action)}`}>
                                         {getActionIcon(log.action)}
                                     </div>
@@ -327,6 +505,11 @@ export default function ActivityLogs() {
                                             <Badge variant="outline" className="text-xs capitalize">
                                                 {log.entity_type}
                                             </Badge>
+                                            {showDeleted && log.deleted_at && (
+                                                <Badge variant="destructive" className="text-xs">
+                                                    Dihapus {format(new Date(log.deleted_at), "dd MMM", { locale: id })}
+                                                </Badge>
+                                            )}
                                         </div>
                                         <p className="text-sm text-gray-600 mb-1">{log.description}</p>
                                         <p className="text-xs text-gray-400 flex items-center gap-1">

@@ -22,9 +22,9 @@ import {
     Calendar,
     User,
     Search,
-    Filter,
     Loader2,
-    FileText
+    FileText,
+    Image as ImageIcon
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
@@ -36,12 +36,12 @@ interface JurnalItem {
     status_validasi: 'menunggu' | 'disetujui' | 'ditolak'
     catatan_guru: string | null
     siswa: {
-        id: string  // <-- TAMBAHKAN INI
+        id: string
         full_name: string
         nis: string
         kelas: string
         jurusan: string
-    }
+    } | null
     penempatan: {
         perusahaan: {
             nama_perusahaan: string
@@ -60,12 +60,13 @@ export default function GuruJurnalPage() {
     const [filterStatus, setFilterStatus] = useState<'all' | 'menunggu' | 'disetujui' | 'ditolak'>('all')
     const [searchQuery, setSearchQuery] = useState("")
     const [processing, setProcessing] = useState(false)
+    const [guruId, setGuruId] = useState<string | null>(null)
 
     useEffect(() => {
-        fetchJurnals()
+        init()
     }, [])
 
-    async function fetchJurnals() {
+    async function init() {
         try {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
@@ -76,55 +77,63 @@ export default function GuruJurnalPage() {
                 .eq('profile_id', user.id)
                 .single()
 
-            if (!guruData) return
+            if (guruData) {
+                setGuruId(guruData.id)
+                await fetchJurnals(guruData.id)
+            }
+        } catch (err) {
+            console.error("Error init:", err)
+        } finally {
+            setLoading(false)
+        }
+    }
 
-            // Ambil siswa yang dibimbing
-            const { data: penempatanData } = await supabase
+    async function fetchJurnals(guruIdParam?: string) {
+        try {
+            setLoading(true)
+            const gId = guruIdParam || guruId
+            console.log("=== DEBUG ===")
+            console.log("Guru ID:", gId)
+
+            if (!gId) {
+                console.log("No guru ID!")
+                return
+            }
+
+            // Cek penempatan
+            const { data: penempatanData, error: penempatanError } = await supabase
                 .from('penempatan_magang')
-                .select(`
-                    siswa_id,
-                    perusahaan:perusahaan_id (nama_perusahaan)
-                `)
-                .eq('guru_pembimbing_id', guruData.id)
+                .select(`siswa_id, status, guru_pembimbing_id`)
+                .eq('guru_pembimbing_id', gId)
 
-            const siswaIds = penempatanData?.map(p => p.siswa_id) || []
-            const perusahaanMap = new Map(penempatanData?.map(p => [p.siswa_id, p.perusahaan]))
+            console.log("Penempatan found:", penempatanData?.length)
+            console.log("Penempatan data:", penempatanData)
+            console.log("Penempatan error:", penempatanError)
 
-            // Ambil jurnal
-            const { data: jurnalData, error } = await supabase
+            if (!penempatanData || penempatanData.length === 0) {
+                console.log("No penempatan found for this guru")
+                setJurnals([])
+                setFilteredJurnals([])
+                return
+            }
+
+            const siswaIds = penempatanData.map(p => p.siswa_id).filter(Boolean)
+            console.log("Siswa IDs:", siswaIds)
+            console.log("Looking for Gina ID:", '092abdf3-80f3-4bb9-865c-7c9425e33770')
+            console.log("Gina ID included?", siswaIds.includes('092abdf3-80f3-4bb9-865c-7c9425e33770'))
+
+            // Cek jurnal
+            const { data: jurnalData, error: jurnalError } = await supabase
                 .from('jurnal_harian')
-                .select(`
-                    id,
-                    tanggal,
-                    kegiatan,
-                    foto_url,
-                    status_validasi,
-                    catatan_guru,
-                    siswa:siswa_id (
-                        id,
-                        full_name,
-                        nis,
-                        kelas,
-                        jurusan
-                    )
-                `)
+                .select(`*`)
                 .in('siswa_id', siswaIds)
                 .order('tanggal', { ascending: false })
 
-            if (error) throw error
+            console.log("Jurnal found:", jurnalData?.length)
+            console.log("Jurnal data:", jurnalData)
+            console.log("Jurnal error:", jurnalError)
 
-            const enrichedData = jurnalData?.map(j => {
-                const siswa: any = j.siswa // Cast ke any untuk menghindari error tipe
-                return {
-                    ...j,
-                    penempatan: {
-                        perusahaan: perusahaanMap.get(siswa?.id) || { nama_perusahaan: '-' }
-                    }
-                }
-            }) || []
-
-            setJurnals(enrichedData as any)
-            setFilteredJurnals(enrichedData as any)
+            // ... lanjutkan kode Anda
 
         } catch (err) {
             console.error("Error:", err)
@@ -142,9 +151,10 @@ export default function GuruJurnalPage() {
         }
 
         if (searchQuery.trim()) {
+            const lowerQuery = searchQuery.toLowerCase()
             filtered = filtered.filter(j =>
-                j.siswa.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                j.kegiatan.toLowerCase().includes(searchQuery.toLowerCase())
+                j.siswa?.full_name?.toLowerCase().includes(lowerQuery) ||
+                j.kegiatan?.toLowerCase().includes(lowerQuery)
             )
         }
 
@@ -156,12 +166,14 @@ export default function GuruJurnalPage() {
 
         setProcessing(true)
         try {
+            const { data: { user } } = await supabase.auth.getUser()
+
             const { error } = await supabase
                 .from('jurnal_harian')
                 .update({
                     status_validasi: status,
                     catatan_guru: catatan || null,
-                    validated_by: (await supabase.auth.getUser()).data.user?.id,
+                    validated_by: user?.id,
                     validated_at: new Date().toISOString()
                 })
                 .eq('id', selectedJurnal.id)
@@ -172,8 +184,6 @@ export default function GuruJurnalPage() {
             await fetchJurnals()
             setIsDetailOpen(false)
             setCatatan("")
-
-            alert(status === 'disetujui' ? 'Jurnal disetujui!' : 'Jurnal ditolak!')
 
         } catch (err) {
             console.error(err)
@@ -197,6 +207,7 @@ export default function GuruJurnalPage() {
     }
 
     const formatDate = (date: string) => {
+        if (!date) return '-'
         return new Date(date).toLocaleDateString('id-ID', {
             day: 'numeric',
             month: 'long',
@@ -307,13 +318,15 @@ export default function GuruJurnalPage() {
                                         <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                                             <User className="h-5 w-5 text-blue-600" />
                                         </div>
-                                        <div>
+                                        <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <h4 className="font-semibold text-gray-900">{jurnal.siswa.full_name}</h4>
+                                                <h4 className="font-semibold text-gray-900">
+                                                    {jurnal.siswa?.full_name || 'Unknown'}
+                                                </h4>
                                                 {getStatusBadge(jurnal.status_validasi)}
                                             </div>
                                             <p className="text-xs text-gray-500 mb-2">
-                                                {jurnal.siswa.nis} • {jurnal.siswa.kelas} {jurnal.siswa.jurusan}
+                                                {jurnal.siswa?.nis || '-'} • {jurnal.siswa?.kelas || '-'} {jurnal.siswa?.jurusan || ''}
                                             </p>
                                             <p className="text-sm text-gray-700 line-clamp-2 mb-2">{jurnal.kegiatan}</p>
                                             <div className="flex items-center gap-4 text-xs text-gray-400">
@@ -325,6 +338,12 @@ export default function GuruJurnalPage() {
                                                     <BookOpen className="w-3 h-3" />
                                                     {jurnal.penempatan.perusahaan.nama_perusahaan}
                                                 </span>
+                                                {jurnal.foto_url && (
+                                                    <span className="flex items-center gap-1 text-blue-500">
+                                                        <ImageIcon className="w-3 h-3" />
+                                                        Ada foto
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -337,7 +356,8 @@ export default function GuruJurnalPage() {
 
                         {filteredJurnals.length === 0 && (
                             <div className="text-center py-12 text-gray-500">
-                                Tidak ada jurnal yang sesuai filter
+                                <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>Tidak ada jurnal yang sesuai filter</p>
                             </div>
                         )}
                     </div>
@@ -346,7 +366,7 @@ export default function GuruJurnalPage() {
 
             {/* Dialog Detail */}
             <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <BookOpen className="h-5 w-5 text-blue-600" />
@@ -364,12 +384,18 @@ export default function GuruJurnalPage() {
                                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                                     <User className="h-6 w-6 text-blue-600" />
                                 </div>
-                                <div>
-                                    <h4 className="font-semibold text-gray-900">{selectedJurnal.siswa.full_name}</h4>
-                                    <p className="text-sm text-gray-500">{selectedJurnal.siswa.nis} • {selectedJurnal.siswa.kelas}</p>
-                                    <p className="text-xs text-gray-400">{selectedJurnal.penempatan.perusahaan.nama_perusahaan}</p>
+                                <div className="flex-1">
+                                    <h4 className="font-semibold text-gray-900">
+                                        {selectedJurnal.siswa?.full_name || 'Unknown'}
+                                    </h4>
+                                    <p className="text-sm text-gray-500">
+                                        {selectedJurnal.siswa?.nis || '-'} • {selectedJurnal.siswa?.kelas || '-'}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {selectedJurnal.penempatan.perusahaan.nama_perusahaan}
+                                    </p>
                                 </div>
-                                <div className="ml-auto">
+                                <div>
                                     {getStatusBadge(selectedJurnal.status_validasi)}
                                 </div>
                             </div>
@@ -383,7 +409,7 @@ export default function GuruJurnalPage() {
                             {/* Kegiatan */}
                             <div>
                                 <label className="text-sm font-medium text-gray-700">Deskripsi Kegiatan</label>
-                                <div className="mt-2 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 leading-relaxed">
+                                <div className="mt-2 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
                                     {selectedJurnal.kegiatan}
                                 </div>
                             </div>
@@ -391,27 +417,42 @@ export default function GuruJurnalPage() {
                             {/* Foto (jika ada) */}
                             {selectedJurnal.foto_url && (
                                 <div>
-                                    <label className="text-sm font-medium text-gray-700">Dokumentasi</label>
+                                    <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                                        <ImageIcon className="w-4 h-4" /> Dokumentasi
+                                    </label>
                                     <div className="mt-2">
                                         <img
                                             src={selectedJurnal.foto_url}
-                                            alt="Dokumentasi"
-                                            className="max-h-48 rounded-lg object-cover"
+                                            alt="Dokumentasi kegiatan"
+                                            className="max-h-64 rounded-lg object-cover border"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none'
+                                            }}
                                         />
                                     </div>
                                 </div>
                             )}
 
-                            {/* Catatan Guru */}
+                            {/* Catatan Guru (readonly kalau sudah diproses) */}
                             <div>
-                                <label className="text-sm font-medium text-gray-700">Catatan/Feedback</label>
-                                <Textarea
-                                    placeholder="Berikan catatan atau feedback untuk siswa..."
-                                    value={catatan}
-                                    onChange={(e) => setCatatan(e.target.value)}
-                                    className="mt-2"
-                                    rows={3}
-                                />
+                                <label className="text-sm font-medium text-gray-700">
+                                    {selectedJurnal.status_validasi === 'menunggu'
+                                        ? 'Catatan/Feedback'
+                                        : 'Catatan Guru'}
+                                </label>
+                                {selectedJurnal.status_validasi === 'menunggu' ? (
+                                    <Textarea
+                                        placeholder="Berikan catatan atau feedback untuk siswa..."
+                                        value={catatan}
+                                        onChange={(e) => setCatatan(e.target.value)}
+                                        className="mt-2"
+                                        rows={3}
+                                    />
+                                ) : (
+                                    <div className="mt-2 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+                                        {selectedJurnal.catatan_guru || 'Tidak ada catatan'}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -425,7 +466,11 @@ export default function GuruJurnalPage() {
                                     disabled={processing}
                                     className="text-red-600 border-red-200 hover:bg-red-50"
                                 >
-                                    <XCircle className="mr-2 h-4 w-4" />
+                                    {processing ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                    )}
                                     Tolak
                                 </Button>
                                 <Button
@@ -433,7 +478,11 @@ export default function GuruJurnalPage() {
                                     disabled={processing}
                                     className="bg-green-600 hover:bg-green-700"
                                 >
-                                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                                    {processing ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                    )}
                                     Setujui
                                 </Button>
                             </>
