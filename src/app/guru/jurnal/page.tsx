@@ -103,7 +103,7 @@ export default function GuruJurnalPage() {
             // Cek penempatan
             const { data: penempatanData, error: penempatanError } = await supabase
                 .from('penempatan_magang')
-                .select(`siswa_id, status, guru_pembimbing_id`)
+                .select(`siswa_id, perusahaan_id, guru_pembimbing_id`)
                 .eq('guru_pembimbing_id', gId)
 
             console.log("Penempatan found:", penempatanData?.length)
@@ -119,21 +119,94 @@ export default function GuruJurnalPage() {
 
             const siswaIds = penempatanData.map(p => p.siswa_id).filter(Boolean)
             console.log("Siswa IDs:", siswaIds)
-            console.log("Looking for Gina ID:", '092abdf3-80f3-4bb9-865c-7c9425e33770')
-            console.log("Gina ID included?", siswaIds.includes('092abdf3-80f3-4bb9-865c-7c9425e33770'))
 
-            // Cek jurnal
-            const { data: jurnalData, error: jurnalError } = await supabase
+            // Query jurnal tanpa join kompleks
+            const { data: jurnalRawData, error: jurnalError } = await supabase
                 .from('jurnal_harian')
-                .select(`*`)
+                .select(`id, tanggal, kegiatan, foto_url, status_validasi, catatan_guru, siswa_id`)
                 .in('siswa_id', siswaIds)
                 .order('tanggal', { ascending: false })
 
-            console.log("Jurnal found:", jurnalData?.length)
-            console.log("Jurnal data:", jurnalData)
+            console.log("Jurnal found:", jurnalRawData?.length)
             console.log("Jurnal error:", jurnalError)
 
-            // ... lanjutkan kode Anda
+            if (jurnalError) {
+                console.error("Error fetching jurnal:", jurnalError)
+                setJurnals([])
+                setFilteredJurnals([])
+                return
+            }
+
+            if (!jurnalRawData || jurnalRawData.length === 0) {
+                console.log("No jurnal found")
+                setJurnals([])
+                setFilteredJurnals([])
+                return
+            }
+
+            // Ambil siswa data
+            const { data: siswaData, error: siswaError } = await supabase
+                .from('siswa')
+                .select(`*`)
+                .in('id', siswaIds)
+
+            console.log("Siswa data:", siswaData)
+            console.log("Siswa error:", siswaError)
+
+            // Ambil profile untuk nama lengkap
+            const profileIds = siswaData?.map(s => s.profile_id).filter(Boolean) || []
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select(`id, full_name`)
+                .in('id', profileIds)
+
+            console.log("Profile data:", profileData)
+            console.log("Profile error:", profileError)
+
+            // Ambil perusahaan data
+            const perusahaanIds = penempatanData.map(p => p.perusahaan_id).filter(Boolean)
+            console.log("Perusahaan IDs:", perusahaanIds)
+            
+            const { data: perusahaanData, error: perusahaanError } = await supabase
+                .from('perusahaan')
+                .select(`id, nama_perusahaan`)
+                .in('id', perusahaanIds)
+
+            console.log("Perusahaan data:", perusahaanData)
+            console.log("Perusahaan error:", perusahaanError)
+
+            // Gabungkan data
+            const jurnalProcessed: JurnalItem[] = jurnalRawData.map(jurnal => {
+                const siswa = siswaData?.find(s => s.id === jurnal.siswa_id)
+                const profile = profileData?.find(p => p.id === siswa?.profile_id)
+                const penempatan = penempatanData.find(p => p.siswa_id === jurnal.siswa_id)
+                const perusahaan = perusahaanData?.find(p => p.id === penempatan?.perusahaan_id)
+
+                return {
+                    id: jurnal.id,
+                    tanggal: jurnal.tanggal,
+                    kegiatan: jurnal.kegiatan,
+                    foto_url: jurnal.foto_url,
+                    status_validasi: jurnal.status_validasi,
+                    catatan_guru: jurnal.catatan_guru,
+                    siswa: {
+                        id: jurnal.siswa_id,
+                        full_name: profile?.full_name || 'Unknown',
+                        nis: siswa?.nis || '',
+                        kelas: siswa?.kelas || '',
+                        jurusan: siswa?.jurusan || ''
+                    },
+                    penempatan: {
+                        perusahaan: {
+                            nama_perusahaan: perusahaan?.nama_perusahaan || 'Unknown'
+                        }
+                    }
+                }
+            })
+
+            console.log("Jurnal processed:", jurnalProcessed)
+            setJurnals(jurnalProcessed)
+            setFilteredJurnals(jurnalProcessed)
 
         } catch (err) {
             console.error("Error:", err)
@@ -166,28 +239,37 @@ export default function GuruJurnalPage() {
 
         setProcessing(true)
         try {
-            const { data: { user } } = await supabase.auth.getUser()
+            console.log("Guru ID untuk validated_by:", guruId)
+
+            const updateData = {
+                status_validasi: status,
+                catatan_guru: catatan || null,
+                validated_by: guruId || null,
+                validated_at: new Date().toISOString()
+            }
+
+            console.log("Updating jurnal with:", updateData)
 
             const { error } = await supabase
                 .from('jurnal_harian')
-                .update({
-                    status_validasi: status,
-                    catatan_guru: catatan || null,
-                    validated_by: user?.id,
-                    validated_at: new Date().toISOString()
-                })
+                .update(updateData)
                 .eq('id', selectedJurnal.id)
 
-            if (error) throw error
+            if (error) {
+                console.error("Update error:", error)
+                throw error
+            }
 
+            console.log("Update success!")
             // Refresh data
             await fetchJurnals()
             setIsDetailOpen(false)
             setCatatan("")
+            alert('Jurnal berhasil di-update!')
 
         } catch (err) {
-            console.error(err)
-            alert('Gagal update status')
+            console.error("Error in handleApprove:", err)
+            alert('Gagal update status: ' + (err instanceof Error ? err.message : 'Unknown error'))
         } finally {
             setProcessing(false)
         }
